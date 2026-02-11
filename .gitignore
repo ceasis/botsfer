@@ -1,2 +1,6 @@
 *.class
 /target
+
+# Memory data (persistent runtime files)
+memory/*
+!memory/.gitkeep
