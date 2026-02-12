@@ -21,4 +21,14 @@ public class ChatController {
         String reply = chatService.getReply(message);
         return Map.of("reply", reply);
     }
+
+    /** Poll for async agent results (background tasks like file collection). */
+    @GetMapping(value = "/chat/async", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> pollAsync() {
+        String result = chatService.pollAsyncResult();
+        if (result != null) {
+            return Map.of("hasResult", true, "reply", result);
+        }
+        return Map.of("hasResult", false);
+    }
 }

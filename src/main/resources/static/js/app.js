@@ -118,8 +118,11 @@
     voiceStatus.hidden = !show;
   }
 
+  let sendingMessage = false;
   async function sendMessage(text) {
     if (!text || !text.trim()) return;
+    if (sendingMessage) return;
+    sendingMessage = true;
     const msg = text.trim();
     inputEl.value = '';
     appendMessage(msg, true);
@@ -134,6 +137,8 @@
       appendMessage(data.reply || 'No reply.', false);
     } catch (e) {
       appendMessage('Could not reach server. Check that the app is running.', false);
+    } finally {
+      sendingMessage = false;
     }
   }
 
@@ -158,6 +163,27 @@
     e.preventDefault();
     sendMessage(inputEl.value);
     focusInputSoon();
+  }, true);
+
+  // Extra fallback: keyup — more reliable in JavaFX WebView where keydown may be swallowed.
+  inputEl.addEventListener('keyup', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (inputEl.value && inputEl.value.trim()) {
+        sendMessage(inputEl.value);
+        focusInputSoon();
+      }
+    }
+  });
+
+  // Last-resort: keyCode 13 via document capture for WebView edge cases.
+  document.addEventListener('keyup', function (e) {
+    if (!root.classList.contains('expanded')) return;
+    if (e.keyCode !== 13 || e.shiftKey) return;
+    if (inputEl.value && inputEl.value.trim()) {
+      sendMessage(inputEl.value);
+      focusInputSoon();
+    }
   }, true);
 
   // Voice (Web Speech API)
@@ -200,20 +226,77 @@
 
       var text = window.java.consumeNativeVoiceTranscript();
       if (text) {
-        appendMessage(text, false);
-        setListeningUi(false);
-        setVoiceStatus('', false);
+        var prefix = '__AUDIO_RESULT__';
+        if (text.indexOf(prefix) === 0) {
+          try {
+            var payload = JSON.parse(text.substring(prefix.length));
+            if (payload.transcript) {
+              appendMessage(payload.transcript, true);
+            }
+            if (payload.reply) {
+              appendMessage(payload.reply, false);
+            }
+          } catch (err) {
+            appendMessage(text, false);
+          }
+        } else {
+          appendMessage(text, false);
+        }
         clearInterval(nativeVoicePollTimer);
         nativeVoicePollTimer = null;
+        // Auto-restart native voice if still enabled
+        if (voiceEnabled) {
+          setTimeout(function () {
+            if (!voiceEnabled) return;
+            setListeningUi(true);
+            if (window.java.startNativeVoice()) {
+              startNativeVoicePolling();
+            } else {
+              setListeningUi(false);
+            }
+          }, 300);
+        } else {
+          setListeningUi(false);
+          setVoiceStatus('', false);
+        }
         return;
       }
 
       if (!window.java.isNativeVoiceListening()) {
-        setListeningUi(false);
         clearInterval(nativeVoicePollTimer);
         nativeVoicePollTimer = null;
+        // Auto-restart if still enabled
+        if (voiceEnabled) {
+          setTimeout(function () {
+            if (!voiceEnabled) return;
+            setListeningUi(true);
+            if (window.java.startNativeVoice()) {
+              startNativeVoicePolling();
+            } else {
+              setListeningUi(false);
+            }
+          }, 300);
+        } else {
+          setListeningUi(false);
+        }
       }
     }, 180);
+  }
+
+  function startListening() {
+    if (isListening) return;
+    setListeningUi(true);
+    if (hasNativeVoice()) {
+      if (window.java.startNativeVoice()) {
+        startNativeVoicePolling();
+      } else {
+        setListeningUi(false);
+      }
+      return;
+    }
+    if (recognition) {
+      try { recognition.start(); } catch (e) { /* already started */ }
+    }
   }
 
   function setVoiceEnabled(enabled) {
@@ -234,10 +317,14 @@
       voiceToggleBtn.title = voiceEnabled ? 'Turn voice off' : 'Turn voice on';
     }
     voiceBtn.classList.toggle('off', !voiceEnabled);
-    voiceBtn.title = voiceEnabled ? 'Start voice input' : 'Voice is off';
-    voiceBtn.setAttribute('aria-label', voiceEnabled ? 'Start voice input' : 'Voice is off');
+    voiceBtn.title = voiceEnabled ? 'Listening' : 'Voice is off';
+    voiceBtn.setAttribute('aria-label', voiceEnabled ? 'Listening' : 'Voice is off');
     if (!voiceEnabled) {
       setVoiceStatus('', false);
+    }
+    // Auto-start listening when enabled
+    if (voiceEnabled && !isListening) {
+      setTimeout(startListening, 200);
     }
   }
 
@@ -260,13 +347,31 @@
     };
 
     recognition.onend = function () {
-      setListeningUi(false);
-      setVoiceStatus('', false);
+      if (voiceEnabled) {
+        // Auto-restart listening
+        setTimeout(function () {
+          if (!voiceEnabled) return;
+          setListeningUi(true);
+          try { recognition.start(); } catch (e) { /* already started */ }
+        }, 300);
+      } else {
+        setListeningUi(false);
+        setVoiceStatus('', false);
+      }
     };
 
-    recognition.onerror = function () {
-      setListeningUi(false);
-      setVoiceStatus('Voice error. Try again.', true);
+    recognition.onerror = function (ev) {
+      if (voiceEnabled && ev.error !== 'not-allowed' && ev.error !== 'service-not-allowed') {
+        // Auto-restart on transient errors
+        setTimeout(function () {
+          if (!voiceEnabled) return;
+          setListeningUi(true);
+          try { recognition.start(); } catch (e) { /* already started */ }
+        }, 500);
+      } else {
+        setListeningUi(false);
+        setVoiceStatus('Voice error. Try again.', true);
+      }
     };
   }
 
@@ -291,18 +396,9 @@
     }
     if (!voiceEnabled) {
       setVoiceEnabled(true);
-      setVoiceStatus('Voice enabled.', true);
-      setTimeout(function () { setVoiceStatus('', false); }, 900);
     }
-    if (isListening) {
-      if (hasNativeVoice() && typeof window.java.stopNativeVoice === 'function') {
-        window.java.stopNativeVoice();
-      } else if (recognition) {
-        recognition.stop();
-      }
-      setListeningUi(false);
-      return;
-    }
+    // If already listening, do nothing — mic stays on
+    if (isListening) return;
 
     setListeningUi(true);
     if (hasNativeVoice()) {
@@ -315,10 +411,21 @@
       return;
     }
 
-    recognition.start();
+    try { recognition.start(); } catch (e) { /* already started */ }
   });
 
-  setVoiceEnabled(false);
+  setVoiceEnabled(true);
+
+  // Poll for async agent results (background tasks like file collection)
+  setInterval(async function () {
+    try {
+      var res = await fetch('/api/chat/async');
+      var data = await res.json();
+      if (data.hasResult && data.reply) {
+        appendMessage(data.reply, false);
+      }
+    } catch (e) { /* ignore */ }
+  }, 2000);
 
   // Initial greeting
   appendMessage('Hi! Type a message or use the microphone.', false);
