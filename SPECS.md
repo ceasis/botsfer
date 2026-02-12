@@ -245,6 +245,11 @@ Spring AI auto-generates tool schemas from `@Tool` annotations and handles the f
 | `openScreenshotsFolder()` | Open botsfer_data/screenshots | Desktop |
 | `listRecentScreenshots(maxCount)` | List newest screenshot files | — |
 | `getRecentFiles(maxCount)` | Windows shell recent items | SystemControlService (PowerShell) |
+| **App interaction** | | |
+| `listOpenWindows()` | List open windows with titles (process, PID, title) | SystemControlService (PowerShell) |
+| `focusWindow(titleOrProcess)` | Bring a window to front by title or process name | SystemControlService (SetForegroundWindow) |
+| `sendKeys(keys)` | Send keystrokes to focused window (^v = Ctrl+V, {ENTER}, etc.) | SystemControlService (WScript.Shell) |
+| `openAppWithArgs(appName, args)` | Open app with file/URL/folder (e.g. Notepad + path, Chrome + URL) | SystemControlService |
 
 ### BrowserTools (5 tools)
 
@@ -309,6 +314,13 @@ Spring AI auto-generates tool schemas from `@Tool` annotations and handles the f
 | `deleteNote(key)` | Delete a saved note | MemoryService |
 
 When `app.memory.enabled=false`, note tools return a disabled message.
+
+### App interaction (SystemTools)
+
+- **listOpenWindows()** — Lists all processes that have a visible window (process name, PID, window title). Use so the user or AI can pick which window to focus.
+- **focusWindow(titleOrProcess)** — Brings the first matching window to the front (partial match on title or process name). Uses Windows `SetForegroundWindow` via PowerShell.
+- **sendKeys(keys)** — Sends keystrokes to the *currently focused* window. Uses WScript.Shell SendKeys: `+` = Shift, `^` = Ctrl, `%` = Alt; `{ENTER}`, `{TAB}`, `{ESC}`, `{DOWN}`, `{UP}`, etc. Example: `^v` = paste, `Hello{ENTER}` = type and press Enter.
+- **openAppWithArgs(appName, args)** — Launches an app with optional arguments: Notepad + file path, Chrome/Edge/Firefox + URL, Explorer + folder path. Generic fallback: `start appName args`.
 
 ### ToolExecutionNotifier
 

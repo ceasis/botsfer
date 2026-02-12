@@ -323,6 +323,81 @@ public class SystemControlService {
     }
 
     /**
+     * List open windows (processes that have a visible window with a title).
+     * Returns process name, PID, and window title for each.
+     */
+    public String listOpenWindows() {
+        String ps = "Get-Process | Where-Object { $_.MainWindowTitle -ne '' } | " +
+                "Select-Object -Property ProcessName, Id, MainWindowTitle | " +
+                "Format-Table -AutoSize -HideTableHeaders | Out-String -Width 200";
+        return runPowerShell(ps);
+    }
+
+    /**
+     * Bring a window to the foreground by searching for its title or process name.
+     * Uses the first matching window (case-insensitive partial match).
+     */
+    public String focusWindow(String search) {
+        if (search == null || search.isBlank()) {
+            return "Provide a window title or process name to focus (e.g. 'notepad', 'chrome').";
+        }
+        String safe = search.trim().replace("'", "''");
+        // Find first process whose MainWindowTitle or ProcessName contains the search, then call SetForegroundWindow
+        String ps = "Add-Type -TypeDefinition @\"\n" +
+                "using System; using System.Runtime.InteropServices;\n" +
+                "public class Win32 { [DllImport(\\\"user32.dll\\\")] public static extern bool SetForegroundWindow(IntPtr hwnd); }\n" +
+                "\"@ -ErrorAction SilentlyContinue; " +
+                "$procs = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and " +
+                "($_.MainWindowTitle -like '*" + safe + "*' -or $_.ProcessName -like '*" + safe + "*') }; " +
+                "if ($procs) { [Win32]::SetForegroundWindow($procs[0].MainWindowHandle); 'Focused: ' + $procs[0].ProcessName + ' - ' + $procs[0].MainWindowTitle } " +
+                "else { 'No window found matching: " + safe.replace("'", "''") + "' }";
+        return runPowerShell(ps);
+    }
+
+    /**
+     * Send keystrokes to the currently focused window. Use for shortcuts or typing.
+     * Special keys: + (Shift), ^ (Ctrl), % (Alt), {ENTER}, {TAB}, {ESC}, {DOWN}, {UP}, etc.
+     * Example: sendKeys("^v") = Ctrl+V (paste), sendKeys("Hello{ENTER}") = type Hello and Enter.
+     */
+    public String sendKeys(String keys) {
+        if (keys == null) keys = "";
+        String escaped = keys.replace("'", "''").replace("`", "``").replace("\"", "`\"");
+        String ps = "$wshell = New-Object -ComObject WScript.Shell; $wshell.SendKeys('" + escaped + "')";
+        runPowerShell(ps);
+        return "Sent keystrokes to the focused window.";
+    }
+
+    /**
+     * Open an application with optional arguments (e.g. a file path or URL).
+     * Example: openAppWithArgs("notepad", "C:\\file.txt") or openAppWithArgs("chrome", "https://example.com").
+     */
+    public String openAppWithArgs(String appName, String args) {
+        String lower = (appName != null ? appName : "").toLowerCase().trim();
+        String argStr = (args != null ? args.trim() : "");
+        try {
+            if (lower.contains("notepad") && !argStr.isEmpty()) {
+                new ProcessBuilder("notepad.exe", argStr).start();
+                return "Opened Notepad with: " + argStr;
+            }
+            if ((lower.contains("chrome") || lower.contains("edge") || lower.contains("firefox")) && !argStr.isEmpty()) {
+                if (!argStr.startsWith("http://") && !argStr.startsWith("https://") && !argStr.contains("."))
+                    argStr = "https://" + argStr;
+                new ProcessBuilder("cmd", "/c", "start", "", argStr).start();
+                return "Opened URL in browser: " + argStr;
+            }
+            if (lower.contains("explorer") || lower.contains("file explorer")) {
+                new ProcessBuilder("explorer.exe", argStr.isEmpty() ? "." : argStr).start();
+                return "Opened Explorer" + (argStr.isEmpty() ? "." : ": " + argStr);
+            }
+            // Generic: start app with args
+            new ProcessBuilder("cmd", "/c", "start", "", appName, argStr).start();
+            return "Started " + appName + (argStr.isEmpty() ? "" : " with: " + argStr);
+        } catch (Exception e) {
+            return "Failed to open: " + e.getMessage();
+        }
+    }
+
+    /**
      * Run an arbitrary CMD command and return output.
      */
     public String runCmd(String command) {

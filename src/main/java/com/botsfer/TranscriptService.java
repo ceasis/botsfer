@@ -22,7 +22,7 @@ public class TranscriptService {
     private static final Logger log = LoggerFactory.getLogger(TranscriptService.class);
     private static final DateTimeFormatter FILE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final int MEMORY_SIZE = 100;
+    private static final int MEMORY_SIZE = 500;
 
     private Path historyDir;
 

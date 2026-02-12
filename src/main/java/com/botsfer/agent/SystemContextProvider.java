@@ -1,5 +1,6 @@
 package com.botsfer.agent;
 
+import com.botsfer.agent.tools.DirectivesTools;
 import org.springframework.stereotype.Component;
 
 import java.net.InetAddress;
@@ -28,7 +29,8 @@ public class SystemContextProvider {
             if (env != null && !env.isBlank()) computerName = env;
         }
 
-        return """
+        StringBuilder sb = new StringBuilder();
+        sb.append("""
                 You are Botsfer, a helpful PC assistant that controls a Windows computer.
                 You can run commands, open apps, manage files, search the web, and answer questions.
 
@@ -43,6 +45,37 @@ public class SystemContextProvider {
                 When they need live system data (IP, disk, RAM, network, etc.), use the runPowerShell or runCmd tools.
                 For file paths that include the home directory, use: %s
                 Be concise and helpful. Use the available tools to fulfill user requests.
-                """.formatted(username, computerName, osName, osVersion, osArch, userHome, now, userHome);
+                """.formatted(username, computerName, osName, osVersion, osArch, userHome, now, userHome));
+
+        String directives = DirectivesTools.loadDirectivesForPrompt();
+        if (directives != null) {
+            sb.append("\nUSER DIRECTIVES (follow these at all times):\n");
+            sb.append(directives);
+            sb.append("\n");
+        }
+
+        // Count non-empty directive lines
+        int directiveCount = 0;
+        if (directives != null) {
+            for (String line : directives.split("\n")) {
+                if (!line.trim().isEmpty()) directiveCount++;
+            }
+        }
+
+        if (directiveCount < 2) {
+            sb.append("""
+
+                DIRECTIVE REMINDER:
+                The user currently has %s primary directive%s set. Primary directives shape your personality, \
+                language, tone, and long-term goals. Once in a while (not every message — roughly every 5-10 exchanges), \
+                gently remind the user that they can set more primary directives to make you more useful. \
+                For example: "By the way, you can give me more primary directives so I know how to help you better — \
+                like preferred language, how you'd like me to respond, or ongoing tasks to keep track of." \
+                Use the setDirectives or appendDirective tool when they provide new ones. \
+                Keep the reminder brief and natural — don't be pushy.
+                """.formatted(directiveCount, directiveCount == 1 ? "" : "s"));
+        }
+
+        return sb.toString();
     }
 }

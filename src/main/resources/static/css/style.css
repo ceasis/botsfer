@@ -275,6 +275,29 @@ html, body {
   opacity: 0.5;
 }
 
+.path-link {
+  color: #60a5fa;
+  text-decoration: underline;
+  text-decoration-color: rgba(96, 165, 250, 0.4);
+  cursor: pointer;
+  transition: color 0.15s, text-decoration-color 0.15s;
+}
+
+.path-link:hover {
+  color: #93c5fd;
+  text-decoration-color: rgba(147, 197, 253, 0.7);
+}
+
+.message.user .path-link {
+  color: #dbeafe;
+  text-decoration-color: rgba(219, 234, 254, 0.4);
+}
+
+.message.user .path-link:hover {
+  color: #fff;
+  text-decoration-color: rgba(255, 255, 255, 0.6);
+}
+
 .message-status {
   align-self: flex-start;
   font-size: 11px;

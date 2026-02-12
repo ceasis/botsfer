@@ -90,24 +90,77 @@
     return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
   }
 
-  function appendMessage(text, isUser) {
-    var wrapper = document.createElement('div');
-    wrapper.className = 'message-wrapper ' + (isUser ? 'user' : 'bot');
+  // Detect Windows file paths and make them clickable
+  var pathRegex = /([A-Za-z]:\\[^\s<>"',:;!?\])(]+(?:\\[^\s<>"',:;!?\])(]+)*)/g;
 
-    var msg = document.createElement('div');
-    msg.className = 'message ' + (isUser ? 'user' : 'bot');
-    msg.textContent = text;
+  function linkifyPaths(text) {
+    var parts = [];
+    var lastIndex = 0;
+    var match;
+    pathRegex.lastIndex = 0;
+    while ((match = pathRegex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push({ type: 'text', value: text.substring(lastIndex, match.index) });
+      }
+      parts.push({ type: 'path', value: match[0] });
+      lastIndex = pathRegex.lastIndex;
+    }
+    if (lastIndex < text.length) {
+      parts.push({ type: 'text', value: text.substring(lastIndex) });
+    }
+    return parts;
+  }
 
-    var time = document.createElement('div');
-    time.className = 'message-time';
-    time.textContent = getTimeStr();
+  function buildMessageContent(el, text) {
+    var parts = linkifyPaths(text);
+    if (parts.length <= 1 && (parts.length === 0 || parts[0].type === 'text')) {
+      el.textContent = text;
+      return;
+    }
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].type === 'text') {
+        el.appendChild(document.createTextNode(parts[i].value));
+      } else {
+        var link = document.createElement('span');
+        link.className = 'path-link';
+        link.textContent = parts[i].value;
+        link.dataset.path = parts[i].value;
+        link.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var p = this.dataset.path;
+          fetch('/api/open-path', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: p })
+          });
+        });
+        el.appendChild(link);
+      }
+    }
+  }
 
+  function addCopyListener(msg) {
     msg.addEventListener('click', function () {
       navigator.clipboard.writeText(msg.textContent).then(function () {
         msg.classList.add('copied');
         setTimeout(function () { msg.classList.remove('copied'); }, 600);
       });
     });
+  }
+
+  function appendMessage(text, isUser) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'message-wrapper ' + (isUser ? 'user' : 'bot');
+
+    var msg = document.createElement('div');
+    msg.className = 'message ' + (isUser ? 'user' : 'bot');
+    buildMessageContent(msg, text);
+
+    var time = document.createElement('div');
+    time.className = 'message-time';
+    time.textContent = getTimeStr();
+
+    addCopyListener(msg);
 
     wrapper.appendChild(msg);
     wrapper.appendChild(time);
@@ -488,18 +541,13 @@
 
     var msg = document.createElement('div');
     msg.className = 'message ' + (isUser ? 'user' : 'bot');
-    msg.textContent = text;
+    buildMessageContent(msg, text);
 
     var timeEl = document.createElement('div');
     timeEl.className = 'message-time';
     timeEl.textContent = time;
 
-    msg.addEventListener('click', function () {
-      navigator.clipboard.writeText(msg.textContent).then(function () {
-        msg.classList.add('copied');
-        setTimeout(function () { msg.classList.remove('copied'); }, 600);
-      });
-    });
+    addCopyListener(msg);
 
     wrapper.appendChild(msg);
     wrapper.appendChild(timeEl);

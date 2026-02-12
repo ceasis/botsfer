@@ -80,6 +80,34 @@ public class SystemTools {
         return systemControl.listRunningApps();
     }
 
+    @Tool(description = "List open windows with their titles (process name, PID, window title). Use to see what windows are open before focusing one.")
+    public String listOpenWindows() {
+        notifier.notify("Listing open windows...");
+        return systemControl.listOpenWindows();
+    }
+
+    @Tool(description = "Bring a window to the front by its title or process name (partial match). Use after listOpenWindows to focus a specific app.")
+    public String focusWindow(
+            @ToolParam(description = "Part of the window title or process name, e.g. 'notepad', 'chrome', 'Excel'") String titleOrProcess) {
+        notifier.notify("Focusing window...");
+        return systemControl.focusWindow(titleOrProcess);
+    }
+
+    @Tool(description = "Send keystrokes to the currently focused window. Use for shortcuts: ^v = Ctrl+V (paste), ^c = Ctrl+C (copy), %{F4} = Alt+F4. Type text directly; use {ENTER}, {TAB}, {ESC} for special keys.")
+    public String sendKeys(
+            @ToolParam(description = "Keystrokes to send: + = Shift, ^ = Ctrl, % = Alt, {ENTER}, {TAB}, {ESC}, {DOWN}, {UP}, or plain text") String keys) {
+        notifier.notify("Sending keystrokes...");
+        return systemControl.sendKeys(keys);
+    }
+
+    @Tool(description = "Open an application with optional arguments: a file path for Notepad, a URL for browser, or a folder path for Explorer.")
+    public String openAppWithArgs(
+            @ToolParam(description = "App name: notepad, chrome, edge, firefox, explorer, etc.") String appName,
+            @ToolParam(description = "Optional: file path, URL, or folder path") String args) {
+        notifier.notify("Opening app with args...");
+        return systemControl.openAppWithArgs(appName, args);
+    }
+
     @Tool(description = "Execute a PowerShell command and return its output. Use for system queries like disk space, RAM, installed programs, battery status, etc.")
     public String runPowerShell(
             @ToolParam(description = "The PowerShell command to execute") String command) {

@@ -3,6 +3,12 @@ package com.botsfer;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
+import java.awt.Desktop;
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
 import java.util.List;
 import java.util.Map;
 
@@ -47,5 +53,29 @@ public class ChatController {
     public Map<String, Object> pollToolStatus() {
         List<String> messages = chatService.drainToolStatus();
         return Map.of("messages", messages);
+    }
+
+    /** Open a file or folder in the system file explorer. */
+    @PostMapping(value = "/open-path", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, String> openPath(@RequestBody Map<String, String> body) {
+        String path = body != null ? body.get("path") : null;
+        if (path == null || path.isBlank()) {
+            return Map.of("status", "error", "message", "No path provided");
+        }
+        try {
+            Path p = Paths.get(path.trim()).toAbsolutePath();
+            if (!Files.exists(p)) {
+                return Map.of("status", "error", "message", "Path not found: " + p);
+            }
+            // For files, open the parent folder and select the file
+            if (Files.isRegularFile(p)) {
+                new ProcessBuilder("explorer.exe", "/select,", p.toString()).start();
+            } else {
+                Desktop.getDesktop().open(p.toFile());
+            }
+            return Map.of("status", "ok", "message", "Opened: " + p);
+        } catch (Exception e) {
+            return Map.of("status", "error", "message", "Failed: " + e.getMessage());
+        }
     }
 }

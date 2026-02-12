@@ -50,6 +50,7 @@ public class ChatService {
     private final ChatHistoryTool chatHistoryTool;
     private final ClipboardTools clipboardTools;
     private final MemoryTools memoryTools;
+    private final DirectivesTools directivesTools;
     private final ToolExecutionNotifier toolNotifier;
 
     /** Spring AI ChatClient — null when no API key is configured. */
@@ -74,6 +75,7 @@ public class ChatService {
                        ChatHistoryTool chatHistoryTool,
                        ClipboardTools clipboardTools,
                        MemoryTools memoryTools,
+                       DirectivesTools directivesTools,
                        ToolExecutionNotifier toolNotifier) {
         this.transcriptService = transcriptService;
         this.pcAgent = pcAgent;
@@ -86,6 +88,7 @@ public class ChatService {
         this.chatHistoryTool = chatHistoryTool;
         this.clipboardTools = clipboardTools;
         this.memoryTools = memoryTools;
+        this.directivesTools = directivesTools;
         this.toolNotifier = toolNotifier;
     }
 
@@ -181,7 +184,7 @@ public class ChatService {
                 String reply = chatClient.prompt()
                         .system(systemCtx.buildSystemMessage())
                         .user(trimmed)
-                        .tools(systemTools, browserTools, fileTools, fileSystemTools, taskStatusTool, chatHistoryTool, clipboardTools, memoryTools)
+                        .tools(systemTools, browserTools, fileTools, fileSystemTools, taskStatusTool, chatHistoryTool, clipboardTools, memoryTools, directivesTools)
                         .call()
                         .content();
 
