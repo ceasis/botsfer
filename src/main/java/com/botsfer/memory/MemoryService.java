@@ -27,6 +27,10 @@ public class MemoryService {
         this.properties = properties;
     }
 
+    public boolean isEnabled() {
+        return properties.isEnabled();
+    }
+
     @PostConstruct
     public void init() throws IOException {
         if (!properties.isEnabled()) return;
@@ -81,6 +85,9 @@ public class MemoryService {
     }
 
     private Path resolveKey(String key) {
+        if (memoryDir == null) {
+            throw new IllegalStateException("Memory is disabled (app.memory.enabled=false)");
+        }
         validateKey(key);
         Path resolved = memoryDir.resolve(key).normalize();
         if (!resolved.startsWith(memoryDir)) {

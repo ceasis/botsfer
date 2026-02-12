@@ -102,6 +102,13 @@
     time.className = 'message-time';
     time.textContent = getTimeStr();
 
+    msg.addEventListener('click', function () {
+      navigator.clipboard.writeText(msg.textContent).then(function () {
+        msg.classList.add('copied');
+        setTimeout(function () { msg.classList.remove('copied'); }, 600);
+      });
+    });
+
     wrapper.appendChild(msg);
     wrapper.appendChild(time);
     messagesEl.appendChild(wrapper);
@@ -144,6 +151,22 @@
     voiceStatus.hidden = !show;
   }
 
+  // ═══ Input history (arrow up/down) ═══
+
+  var inputHistory = [];
+  var historyIndex = -1;
+  var savedInput = '';
+
+  function addToInputHistory(text) {
+    if (!text || !text.trim()) return;
+    var trimmed = text.trim();
+    // Avoid consecutive duplicates
+    if (inputHistory.length > 0 && inputHistory[inputHistory.length - 1] === trimmed) return;
+    inputHistory.push(trimmed);
+    // Cap at 200 entries
+    if (inputHistory.length > 200) inputHistory.shift();
+  }
+
   // ═══ Send message ═══
 
   let sendingMessage = false;
@@ -177,6 +200,9 @@
     if (sendingMessage) return;
     sendingMessage = true;
     const msg = text.trim();
+    addToInputHistory(msg);
+    historyIndex = -1;
+    savedInput = '';
     inputEl.value = '';
     appendMessage(msg, true);
     showThinking();
@@ -206,6 +232,31 @@
   sendBtn.addEventListener('click', function () {
     sendMessage(inputEl.value);
     focusInputSoon();
+  });
+
+  // Arrow up/down — cycle through input history
+  inputEl.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowUp') {
+      if (inputHistory.length === 0) return;
+      e.preventDefault();
+      if (historyIndex === -1) savedInput = inputEl.value || '';
+      if (historyIndex < inputHistory.length - 1) {
+        historyIndex++;
+        inputEl.value = inputHistory[inputHistory.length - 1 - historyIndex];
+      }
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      if (historyIndex < 0) return;
+      e.preventDefault();
+      historyIndex--;
+      if (historyIndex < 0) {
+        inputEl.value = savedInput;
+      } else {
+        inputEl.value = inputHistory[inputHistory.length - 1 - historyIndex];
+      }
+      return;
+    }
   });
 
   // Enter key — multiple fallbacks for JavaFX WebView
@@ -429,7 +480,48 @@
     } catch (e) { /* ignore */ }
   }, 2000);
 
-  // ═══ Greeting ═══
+  // ═══ Load chat history or show greeting ═══
 
-  appendMessage('Hi! I\'m Botsfer. Ask me anything or give me a command.', false);
+  function appendHistoryMessage(text, isUser, time) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'message-wrapper ' + (isUser ? 'user' : 'bot');
+
+    var msg = document.createElement('div');
+    msg.className = 'message ' + (isUser ? 'user' : 'bot');
+    msg.textContent = text;
+
+    var timeEl = document.createElement('div');
+    timeEl.className = 'message-time';
+    timeEl.textContent = time;
+
+    msg.addEventListener('click', function () {
+      navigator.clipboard.writeText(msg.textContent).then(function () {
+        msg.classList.add('copied');
+        setTimeout(function () { msg.classList.remove('copied'); }, 600);
+      });
+    });
+
+    wrapper.appendChild(msg);
+    wrapper.appendChild(timeEl);
+    messagesEl.appendChild(wrapper);
+  }
+
+  (async function loadHistory() {
+    try {
+      var res = await fetch('/api/chat/history');
+      var data = await res.json();
+      if (data.messages && data.messages.length > 0) {
+        for (var i = 0; i < data.messages.length; i++) {
+          var m = data.messages[i];
+          appendHistoryMessage(m.text, m.isUser, m.time);
+          if (m.isUser) addToInputHistory(m.text);
+        }
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      } else {
+        appendMessage('Hi! I\'m Botsfer. Ask me anything or give me a command.', false);
+      }
+    } catch (e) {
+      appendMessage('Hi! I\'m Botsfer. Ask me anything or give me a command.', false);
+    }
+  })();
 })();

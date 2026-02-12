@@ -267,6 +267,14 @@ html, body {
 }
 
 /* Tool execution status */
+.message {
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.message.copied {
+  opacity: 0.5;
+}
+
 .message-status {
   align-self: flex-start;
   font-size: 11px;
@@ -294,7 +302,9 @@ html, body {
   border-radius: 10px;
   background: rgba(39, 39, 42, 0.9);
   color: #e4e4e7;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 13px;
+  line-height: 1.45;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
 }

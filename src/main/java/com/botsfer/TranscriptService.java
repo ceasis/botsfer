@@ -10,9 +10,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -29,11 +29,63 @@ public class TranscriptService {
     /** In-memory ring buffer of the last 100 messages. */
     private final LinkedList<String> recentMemory = new LinkedList<>();
 
+    private static final Pattern LINE_PATTERN =
+            Pattern.compile("^\\[(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})] ([^:]+): (.+)$");
+
     @PostConstruct
     public void init() throws IOException {
         historyDir = Paths.get(System.getProperty("user.home"), "botsfer_data", "botsfer_history");
         Files.createDirectories(historyDir);
         log.info("Chat history directory: {}", historyDir);
+        loadLatestHistory();
+    }
+
+    /** Loads the most recent history file into the in-memory ring buffer on startup. */
+    private void loadLatestHistory() {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(historyDir, "chat_history_*.dat")) {
+            List<Path> files = new ArrayList<>();
+            stream.forEach(files::add);
+            if (files.isEmpty()) return;
+            files.sort((a, b) -> b.getFileName().toString().compareTo(a.getFileName().toString()));
+            Path latest = files.get(0);
+            List<String> lines = Files.readAllLines(latest, StandardCharsets.UTF_8);
+            synchronized (recentMemory) {
+                for (String line : lines) {
+                    if (!line.isBlank()) {
+                        recentMemory.addLast(line);
+                        while (recentMemory.size() > MEMORY_SIZE) {
+                            recentMemory.removeFirst();
+                        }
+                    }
+                }
+            }
+            log.info("Loaded {} history lines from {}", recentMemory.size(), latest.getFileName());
+        } catch (IOException e) {
+            log.warn("Could not load chat history on startup: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Returns recent history as structured maps for the REST API.
+     * Each entry: {speaker, text, time, isUser}.
+     */
+    public List<Map<String, Object>> getStructuredHistory() {
+        List<Map<String, Object>> result = new ArrayList<>();
+        synchronized (recentMemory) {
+            for (String line : recentMemory) {
+                Matcher m = LINE_PATTERN.matcher(line);
+                if (m.matches()) {
+                    String time = m.group(1);
+                    String speaker = m.group(2).trim();
+                    String text = m.group(3);
+                    boolean isUser = speaker.startsWith("USER");
+                    // Extract just HH:mm for display
+                    String shortTime = time.length() >= 16 ? time.substring(11, 16) : time;
+                    result.add(Map.of("speaker", speaker, "text", text, "time", shortTime, "isUser", isUser));
+                }
+            }
+        }
+        return result;
     }
 
     /**

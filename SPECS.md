@@ -2,7 +2,9 @@
 
 ## Overview
 
-Botsfer is a floating desktop chatbot built with **Java 17**, **Spring Boot 3.5.3**, **JavaFX 21**, and **Spring AI 1.0.1**. A swirling animated ball sits on the desktop; double-click expands a chat panel. It connects to OpenAI for intelligent tool-calling conversations, falls back to regex-based commands offline, and integrates with 9 messaging platforms. It can control the PC, collect files, browse the web, capture screenshots, and maintain persistent conversation history.
+Botsfer is a floating desktop chatbot built with **Java 17**, **Spring Boot 3.5.3**, **JavaFX 21**, and **Spring AI 1.0.1**. 
+
+A swirling animated ball sits on the desktop; double-click expands a chat panel. It connects to OpenAI for intelligent tool-calling conversations, falls back to regex-based commands offline, and integrates with 9 messaging platforms. It can control the PC, collect files, browse the web, capture screenshots, and maintain persistent conversation history.
 
 **Main class:** `com.botsfer.FloatingAppLauncher`
 **Default port:** `8765` (configurable via `BOTSFER_PORT` env var)
@@ -28,13 +30,15 @@ Botsfer is a floating desktop chatbot built with **Java 17**, **Spring Boot 3.5.
 │  ChatController ──► ChatService ──► Spring AI ChatClient       │
 │       /api/chat          │              │                      │
 │       /api/chat/async    │         ┌────▼────────────────┐     │
-│       /api/chat/status   │         │  25 @Tool methods   │     │
-│                          │         │  SystemTools (8)    │     │
+│       /api/chat/status   │         │  @Tool methods      │     │
+│                          │         │  SystemTools        │     │
 │                          │         │  BrowserTools (5)   │     │
 │                          │         │  FileTools (4)      │     │
-│                          │         │  FileSystemTools (4)│     │
+│                          │         │  FileSystemTools    │     │
 │                          │         │  ChatHistoryTool (3)│     │
 │                          │         │  TaskStatusTool (1) │     │
+│                          │         │  ClipboardTools (2)│     │
+│                          │         │  MemoryTools (4)    │     │
 │                          │         └─────────────────────┘     │
 │                          │                                     │
 │                          ├──► PcAgentService (regex fallback)  │
@@ -63,6 +67,8 @@ Botsfer is a floating desktop chatbot built with **Java 17**, **Spring Boot 3.5.
 ```
 src/main/java/com/botsfer/
 ├── BotsferApplication.java              # Spring Boot @SpringBootApplication entry
+├── config/
+│   └── OpenAiSecretsLoader.java         # EnvironmentPostProcessor — loads OpenAI API key early from file/env
 ├── FloatingAppLauncher.java             # JavaFX Application — transparent window + WebView
 ├── WindowBridge.java                    # JS ↔ Java bridge (expand/collapse/drag/voice)
 ├── NativeVoiceService.java              # Microphone capture → WAV → OpenAI transcription
@@ -79,12 +85,14 @@ src/main/java/com/botsfer/
 │   ├── BrowserControlService.java       # Browser automation
 │   ├── FileCollectorService.java        # Scan PC for files by category
 │   └── tools/
-│       ├── SystemTools.java             # 8 @Tool methods → SystemControlService
+│       ├── SystemTools.java             # System, date/time, env, volume, power, screenshots, network, recent files
 │       ├── BrowserTools.java            # 5 @Tool methods → BrowserControlService
 │       ├── FileTools.java               # 4 @Tool methods → FileCollectorService (2 async)
-│       ├── FileSystemTools.java         # 4 @Tool methods (open/copy/delete/count)
+│       ├── FileSystemTools.java         # @Tool methods (open/copy/delete/list/read/write/zip/etc.)
 │       ├── ChatHistoryTool.java         # 3 @Tool methods → TranscriptService
 │       ├── TaskStatusTool.java          # 1 @Tool method (background task status)
+│       ├── ClipboardTools.java          # 2 @Tool methods (get/set clipboard text)
+│       ├── MemoryTools.java             # 4 @Tool methods (notes) → MemoryService
 │       └── ToolExecutionNotifier.java   # Status message queue for frontend polling
 │
 ├── memory/
@@ -112,6 +120,7 @@ src/main/java/com/botsfer/
 
 src/main/resources/
 ├── application.properties               # All configuration
+├── application-secrets.properties       # Optional, gitignored — OpenAI API key (see Config Reference)
 └── static/
     ├── index.html                       # Root UI
     ├── css/style.css                    # Dark theme, animations
@@ -178,7 +187,7 @@ Central reply logic used by the desktop UI and all 9 platform integrations.
    - Works completely offline without an API key
 
 3. **No-AI message** (if `chatClient == null` and no regex match):
-   - Returns "AI is not connected" guidance
+   - Returns: "AI is not connected. Set your OpenAI API key in application-secrets.properties (project root) or set the OPENAI_API_KEY environment variable, then restart."
 
 **Audio pipeline:** WAV bytes → `transcribeAudio()` via OpenAI Whisper API → `getReply(transcript)`
 
@@ -210,7 +219,7 @@ Periodic desktop screenshot capture with auto-cleanup.
 
 Spring AI auto-generates tool schemas from `@Tool` annotations and handles the full tool-calling protocol with the LLM. Tool classes are thin wrappers around core services, keeping business logic AI-agnostic.
 
-### SystemTools (8 tools)
+### SystemTools (many tools)
 
 | Tool | Description | Delegates to |
 |------|-------------|--------------|
@@ -223,6 +232,19 @@ Spring AI auto-generates tool schemas from `@Tool` annotations and handles the f
 | `listRunningApps()` | List running processes | SystemControlService |
 | `runPowerShell(command)` | Execute PowerShell, return output | SystemControlService |
 | `runCmd(command)` | Execute CMD, return output | SystemControlService |
+| `getSystemInfo()` | RAM, CPU, OS, disk, uptime, Java | — |
+| `getCurrentDateTime()` | Current date/time and time zone | — |
+| `getEnvVar(name)` | Get environment variable value | — |
+| `listEnvVars()` | List all env var names | — |
+| `mute()` / `unmute()` | Toggle system volume mute | SystemControlService (PowerShell) |
+| `sleep()` | Put PC to sleep | runCmd(rundll32) |
+| `hibernate()` | Hibernate PC | SystemControlService (shutdown /h) |
+| `shutdown(delayMinutes)` | Shut down (optional delay) | SystemControlService |
+| `ping(host)` | Ping host, return round-trip | SystemControlService |
+| `getLocalIpAddress()` | Local host name and IP | InetAddress / ipconfig |
+| `openScreenshotsFolder()` | Open botsfer_data/screenshots | Desktop |
+| `listRecentScreenshots(maxCount)` | List newest screenshot files | — |
+| `getRecentFiles(maxCount)` | Windows shell recent items | SystemControlService (PowerShell) |
 
 ### BrowserTools (5 tools)
 
@@ -269,6 +291,24 @@ Spring AI auto-generates tool schemas from `@Tool` annotations and handles the f
 | Tool | Description |
 |------|-------------|
 | `taskStatus()` | Show status of background file tasks |
+
+### ClipboardTools (2 tools)
+
+| Tool | Description |
+|------|-------------|
+| `getClipboardText()` | Read current text from system clipboard |
+| `setClipboardText(text)` | Copy text to system clipboard |
+
+### MemoryTools / Notes (4 tools)
+
+| Tool | Description | Delegates to |
+|------|-------------|--------------|
+| `saveNote(key, value)` | Save a note/reminder under a key | MemoryService |
+| `getNote(key)` | Recall a saved note by key | MemoryService |
+| `listNoteKeys()` | List all saved note keys | MemoryService |
+| `deleteNote(key)` | Delete a saved note | MemoryService |
+
+When `app.memory.enabled=false`, note tools return a disabled message.
 
 ### ToolExecutionNotifier
 
@@ -452,11 +492,12 @@ app.window.always-on-top=true
 app.window.hover.expand.delay-ms=150
 app.window.hover.collapse.delay-ms=400
 
-# Spring AI (requires API key in application-secrets.properties)
+# Spring AI — API key loaded from secrets file or env (see below)
+spring.ai.openai.api-key=${OPENAI_API_KEY:${SPRING_AI_OPENAI_API_KEY:}}
 spring.ai.openai.base-url=https://api.openai.com
 spring.ai.openai.chat.options.model=gpt-4o-mini
 
-# Audio transcription
+# Audio transcription (shares Spring AI key)
 app.openai.api-key=${spring.ai.openai.api-key:}
 app.openai.transcription-model=gpt-4o-mini-transcribe
 
@@ -486,6 +527,21 @@ app.teams.enabled=false
 app.wechat.enabled=false
 app.signal.enabled=false
 ```
+
+### OpenAI API key (required for AI conversations)
+
+**`OpenAiSecretsLoader`** (EnvironmentPostProcessor, highest precedence) runs before Spring AI and sets `spring.ai.openai.api-key` so the key is always found regardless of working directory. It loads in this order (first non-empty wins):
+
+1. **Already set** in Environment (e.g. from `application.properties` or env)
+2. **Environment variables:** `OPENAI_API_KEY`, then `SPRING_AI_OPENAI_API_KEY`
+3. **File `application-secrets.properties`** (first existing file with the property):
+   - `./application-secrets.properties` (current working directory)
+   - `{user.dir}/application-secrets.properties`
+   - Classpath: `application-secrets.properties` (e.g. `src/main/resources/application-secrets.properties`)
+
+**Recommended:** Put `application-secrets.properties` in **`src/main/resources/`** so it is on the classpath. Copy from `application-secrets.properties.example` at project root, set `spring.ai.openai.api-key=sk-your-key`, then restart. The file is gitignored.
+
+If no key is set, `ChatClient` is not created; the bot uses regex fallback and shows the "AI is not connected" message for free-form chat.
 
 ### application-secrets.properties (gitignored)
 
@@ -535,6 +591,12 @@ mvn clean package -DskipTests    # Full build with JavaFX natives
 mvn spring-boot:run              # Development run
 mvn compiler:compile             # Compile only (when jfxwebkit.dll locked)
 ```
+
+---
+
+## Spec maintenance
+
+**When adding or changing requirements:** Update this SPECS.md so it stays the single source of truth. Document new config properties, endpoints, behavior, and user-facing messages here.
 
 ---
 

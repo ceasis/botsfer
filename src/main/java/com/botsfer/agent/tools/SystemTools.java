@@ -1,9 +1,29 @@
 package com.botsfer.agent.tools;
 
 import com.botsfer.agent.SystemControlService;
+import com.sun.management.OperatingSystemMXBean;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
+
+import java.awt.Desktop;
+import java.lang.management.ManagementFactory;
+import java.net.InetAddress;
+import java.nio.file.DirectoryStream;
+import java.nio.file.FileStore;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.FileTime;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeSet;
 
 @Component
 public class SystemTools {
@@ -72,5 +92,219 @@ public class SystemTools {
             @ToolParam(description = "The CMD command to execute") String command) {
         notifier.notify("Running CMD: " + command);
         return systemControl.runCmd(command);
+    }
+
+    @Tool(description = "Get system hardware and OS information: RAM (total, free, used), CPU (name, cores, usage), OS, computer name, uptime, Java version, and disk space for all drives")
+    public String getSystemInfo() {
+        notifier.notify("Gathering system info...");
+        StringBuilder sb = new StringBuilder();
+        try {
+            OperatingSystemMXBean os = (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
+            Runtime rt = Runtime.getRuntime();
+
+            // OS
+            sb.append("OS: ").append(System.getProperty("os.name"))
+              .append(" ").append(System.getProperty("os.version"))
+              .append(" (").append(System.getProperty("os.arch")).append(")\n");
+
+            // Computer & user
+            try {
+                sb.append("Computer: ").append(InetAddress.getLocalHost().getHostName()).append("\n");
+            } catch (Exception e) {
+                sb.append("Computer: unknown\n");
+            }
+            sb.append("User: ").append(System.getProperty("user.name")).append("\n");
+
+            // CPU
+            sb.append("CPU: ").append(os.getAvailableProcessors()).append(" logical cores\n");
+            double cpuLoad = os.getCpuLoad();
+            if (cpuLoad >= 0) {
+                sb.append("CPU usage: ").append(String.format("%.1f%%", cpuLoad * 100)).append("\n");
+            }
+
+            // RAM
+            long totalRam = os.getTotalMemorySize();
+            long freeRam = os.getFreeMemorySize();
+            long usedRam = totalRam - freeRam;
+            sb.append("RAM total: ").append(fmt(totalRam)).append("\n");
+            sb.append("RAM used: ").append(fmt(usedRam)).append("\n");
+            sb.append("RAM free: ").append(fmt(freeRam)).append("\n");
+            sb.append("RAM usage: ").append(String.format("%.1f%%", usedRam * 100.0 / totalRam)).append("\n");
+
+            // JVM memory
+            sb.append("JVM heap max: ").append(fmt(rt.maxMemory())).append("\n");
+            sb.append("JVM heap used: ").append(fmt(rt.totalMemory() - rt.freeMemory())).append("\n");
+
+            // Uptime
+            long uptimeMs = ManagementFactory.getRuntimeMXBean().getUptime();
+            long uptimeSec = uptimeMs / 1000;
+            long hours = uptimeSec / 3600;
+            long mins = (uptimeSec % 3600) / 60;
+            sb.append("JVM uptime: ").append(hours).append("h ").append(mins).append("m\n");
+
+            // Java version
+            sb.append("Java: ").append(System.getProperty("java.version"))
+              .append(" (").append(System.getProperty("java.vendor")).append(")\n");
+
+            // Disks
+            sb.append("\nDrives:\n");
+            for (Path root : FileSystems.getDefault().getRootDirectories()) {
+                try {
+                    FileStore store = Files.getFileStore(root);
+                    long total = store.getTotalSpace();
+                    long free = store.getUsableSpace();
+                    long used = total - free;
+                    int pct = total > 0 ? (int) (used * 100 / total) : 0;
+                    sb.append(String.format("  %s  %s total, %s free, %s used (%d%%)\n",
+                            root, fmt(total), fmt(free), fmt(used), pct));
+                } catch (Exception e) {
+                    sb.append("  ").append(root).append("  (not accessible)\n");
+                }
+            }
+        } catch (Exception e) {
+            sb.append("Error: ").append(e.getMessage());
+        }
+        return sb.toString();
+    }
+
+    @Tool(description = "Get current date and time and time zone. Use when the user asks what time or date it is.")
+    public String getCurrentDateTime() {
+        notifier.notify("Getting date/time...");
+        ZoneId zone = ZoneId.systemDefault();
+        LocalDateTime now = LocalDateTime.now();
+        String formatted = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        return "Current date/time: " + formatted + " (" + zone.getId() + ")";
+    }
+
+    @Tool(description = "Get the value of an environment variable (e.g. USERPROFILE, PATH, APPDATA).")
+    public String getEnvVar(
+            @ToolParam(description = "Name of the environment variable") String name) {
+        notifier.notify("Getting env var...");
+        String value = System.getenv(name);
+        return value != null ? value : "(not set)";
+    }
+
+    @Tool(description = "List all environment variable names (values not shown). Use to see what env vars exist.")
+    public String listEnvVars() {
+        notifier.notify("Listing env vars...");
+        Map<String, String> env = System.getenv();
+        List<String> names = new ArrayList<>(new TreeSet<>(env.keySet()));
+        return "Environment variables: " + String.join(", ", names);
+    }
+
+    @Tool(description = "Mute system volume (toggle). Send the mute key once.")
+    public String mute() {
+        notifier.notify("Muting...");
+        return systemControl.runPowerShell("$wshell = New-Object -ComObject WScript.Shell; $wshell.SendKeys([char]173)");
+    }
+
+    @Tool(description = "Unmute system volume (toggle). Send the mute key once.")
+    public String unmute() {
+        notifier.notify("Unmuting...");
+        return systemControl.runPowerShell("$wshell = New-Object -ComObject WScript.Shell; $wshell.SendKeys([char]173)");
+    }
+
+    @Tool(description = "Put the computer to sleep (suspend).")
+    public String sleep() {
+        notifier.notify("Putting PC to sleep...");
+        return systemControl.runCmd("rundll32.exe powrprof.dll,SetSuspendState 0,1,0");
+    }
+
+    @Tool(description = "Hibernate the computer.")
+    public String hibernate() {
+        notifier.notify("Hibernating...");
+        return systemControl.runCmd("shutdown /h");
+    }
+
+    @Tool(description = "Shut down the computer. Optionally delay in minutes (0 = immediately).")
+    public String shutdown(
+            @ToolParam(description = "Minutes to wait before shutting down (0 for immediately)") int delayMinutes) {
+        notifier.notify("Shutting down...");
+        int seconds = Math.max(0, delayMinutes) * 60;
+        return systemControl.runCmd("shutdown /s /t " + seconds);
+    }
+
+    @Tool(description = "Ping a host to check if it is reachable. Returns round-trip time or error.")
+    public String ping(
+            @ToolParam(description = "Hostname or IP to ping (e.g. google.com, 8.8.8.8)") String host) {
+        notifier.notify("Pinging " + host + "...");
+        return systemControl.runCmd("ping -n 3 " + host.replace(" ", ""));
+    }
+
+    @Tool(description = "Get the local machine's IP address(es).")
+    public String getLocalIpAddress() {
+        notifier.notify("Getting local IP...");
+        try {
+            InetAddress local = InetAddress.getLocalHost();
+            return "Local host: " + local.getHostName() + " / " + local.getHostAddress();
+        } catch (Exception e) {
+            String out = systemControl.runCmd("ipconfig");
+            return out != null && out.length() > 500 ? out.substring(0, 500) + "..." : out;
+        }
+    }
+
+    @Tool(description = "Open the folder where screenshots are saved (botsfer_data/screenshots).")
+    public String openScreenshotsFolder() {
+        notifier.notify("Opening screenshots folder...");
+        try {
+            Path dir = Paths.get(System.getProperty("user.home"), "botsfer_data", "screenshots");
+            if (!Files.isDirectory(dir)) return "Screenshots folder does not exist yet: " + dir;
+            Desktop.getDesktop().open(dir.toFile());
+            return "Opened: " + dir.toAbsolutePath();
+        } catch (Exception e) {
+            return "Failed to open folder: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = "List the most recent screenshot files (name and date).")
+    public String listRecentScreenshots(
+            @ToolParam(description = "Maximum number of screenshots to list (e.g. 10)") int maxCount) {
+        notifier.notify("Listing recent screenshots...");
+        try {
+            Path dir = Paths.get(System.getProperty("user.home"), "botsfer_data", "screenshots");
+            if (!Files.isDirectory(dir)) return "Screenshots folder does not exist yet.";
+            List<Path> files = new ArrayList<>();
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir, "*.png")) {
+                for (Path p : stream) {
+                    if (Files.isRegularFile(p)) files.add(p);
+                }
+            }
+            files.sort(Comparator.<Path, FileTime>comparing((Path p) -> {
+                try { return Files.getLastModifiedTime(p); } catch (Exception e) { return FileTime.fromMillis(0); }
+            }).reversed());
+            int n = Math.min(Math.max(1, maxCount), files.size());
+            StringBuilder sb = new StringBuilder("Recent screenshots (newest first):\n");
+            for (int i = 0; i < n; i++) {
+                Path p = files.get(i);
+                try {
+                    FileTime mod = Files.getLastModifiedTime(p);
+                    sb.append("  ").append(p.getFileName()).append("  ").append(mod.toString()).append("\n");
+                } catch (Exception e) {
+                    sb.append("  ").append(p.getFileName()).append("\n");
+                }
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "Failed to list screenshots: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = "Get recently opened files from Windows (shell recent items). Returns paths so the user can open one.")
+    public String getRecentFiles(
+            @ToolParam(description = "Maximum number of recent files to return (e.g. 15)") int maxCount) {
+        notifier.notify("Getting recent files...");
+        int n = Math.min(25, Math.max(1, maxCount));
+        String ps = "Get-ChildItem -Path $env:APPDATA\\Microsoft\\Windows\\Recent -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First " + n + " | ForEach-Object { $_.Name + ' | ' + $_.LastWriteTime }";
+        return systemControl.runPowerShell(ps);
+    }
+
+    private static String fmt(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        double kb = bytes / 1024.0;
+        if (kb < 1024) return String.format("%.1f KB", kb);
+        double mb = kb / 1024.0;
+        if (mb < 1024) return String.format("%.1f MB", mb);
+        double gb = mb / 1024.0;
+        return String.format("%.2f GB", gb);
     }
 }

@@ -7,8 +7,8 @@ import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.InMemoryChatMemoryRepository;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -56,8 +56,12 @@ public class AiConfig {
     }
 
     @Bean
-    @ConditionalOnBean(ChatClient.Builder.class)
-    public ChatClient chatClient(ChatClient.Builder builder, ChatMemory chatMemory) {
+    public ChatClient chatClient(ObjectProvider<ChatClient.Builder> builderProvider, ChatMemory chatMemory) {
+        ChatClient.Builder builder = builderProvider.getIfAvailable();
+        if (builder == null) {
+            log.warn("[AiConfig] ChatClient.Builder not available — Spring AI auto-config did not create it.");
+            return null;
+        }
         log.info("[AiConfig] Creating ChatClient bean with memory advisor");
         return builder
                 .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory)

@@ -8,6 +8,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -44,11 +48,17 @@ public class ChatService {
     private final FileSystemTools fileSystemTools;
     private final TaskStatusTool taskStatusTool;
     private final ChatHistoryTool chatHistoryTool;
+    private final ClipboardTools clipboardTools;
+    private final MemoryTools memoryTools;
     private final ToolExecutionNotifier toolNotifier;
 
     /** Spring AI ChatClient — null when no API key is configured. */
     @Autowired(required = false)
     private ChatClient chatClient;
+
+    /** Spring AI ChatMemory — null when Spring AI is not active. */
+    @Autowired(required = false)
+    private ChatMemory chatMemory;
 
     /** Async results from background agent tasks (polled by frontend). */
     private final ConcurrentLinkedQueue<String> asyncResults = new ConcurrentLinkedQueue<>();
@@ -62,6 +72,8 @@ public class ChatService {
                        FileSystemTools fileSystemTools,
                        TaskStatusTool taskStatusTool,
                        ChatHistoryTool chatHistoryTool,
+                       ClipboardTools clipboardTools,
+                       MemoryTools memoryTools,
                        ToolExecutionNotifier toolNotifier) {
         this.transcriptService = transcriptService;
         this.pcAgent = pcAgent;
@@ -72,6 +84,8 @@ public class ChatService {
         this.fileSystemTools = fileSystemTools;
         this.taskStatusTool = taskStatusTool;
         this.chatHistoryTool = chatHistoryTool;
+        this.clipboardTools = clipboardTools;
+        this.memoryTools = memoryTools;
         this.toolNotifier = toolNotifier;
     }
 
@@ -85,6 +99,33 @@ public class ChatService {
         log.info("║  [ChatService] ChatClient injected: {}", chatClient != null);
         log.info("║  [ChatService] OpenAI API key (audio): {}", (openAiApiKey != null && !openAiApiKey.isBlank()) ? "SET" : "NOT SET");
         log.info("╚══════════════════════════════════════════════════════════════╝");
+
+        // Seed Spring AI ChatMemory with transcript history so AI remembers previous conversations
+        seedChatMemory();
+    }
+
+    private void seedChatMemory() {
+        if (chatMemory == null) {
+            log.info("[ChatService] ChatMemory not available — skipping history seed.");
+            return;
+        }
+        var history = transcriptService.getStructuredHistory();
+        if (history.isEmpty()) {
+            log.info("[ChatService] No chat history to seed into ChatMemory.");
+            return;
+        }
+        java.util.List<Message> messages = new java.util.ArrayList<>();
+        for (var entry : history) {
+            String text = (String) entry.get("text");
+            boolean isUser = (Boolean) entry.get("isUser");
+            if (isUser) {
+                messages.add(new UserMessage(text));
+            } else {
+                messages.add(new AssistantMessage(text));
+            }
+        }
+        chatMemory.add("botsfer-local", messages);
+        log.info("[ChatService] Seeded ChatMemory with {} messages from transcript history.", messages.size());
     }
 
     /** Returns and removes the next async result, or null if none. */
@@ -140,7 +181,7 @@ public class ChatService {
                 String reply = chatClient.prompt()
                         .system(systemCtx.buildSystemMessage())
                         .user(trimmed)
-                        .tools(systemTools, browserTools, fileTools, fileSystemTools, taskStatusTool, chatHistoryTool)
+                        .tools(systemTools, browserTools, fileTools, fileSystemTools, taskStatusTool, chatHistoryTool, clipboardTools, memoryTools)
                         .call()
                         .content();
 
@@ -166,7 +207,7 @@ public class ChatService {
 
         // 3. No AI configured and no regex match
         if (chatClient == null) {
-            String noAiReply = "AI is not connected. Set your OpenAI API key in application-secrets.properties (project root) or set the OPENAI_API_KEY environment variable, then restart.";
+            String noAiReply = "ChatClient is null. AI is not connected. Set your OpenAI API key in application-secrets.properties (project root) or set the OPENAI_API_KEY environment variable, then restart.";
             transcriptService.save("BOT", noAiReply);
             return noAiReply;
         }

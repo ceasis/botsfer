@@ -11,9 +11,18 @@ import java.util.Map;
 public class ChatController {
 
     private final ChatService chatService;
+    private final TranscriptService transcriptService;
 
-    public ChatController(ChatService chatService) {
+    public ChatController(ChatService chatService, TranscriptService transcriptService) {
         this.chatService = chatService;
+        this.transcriptService = transcriptService;
+    }
+
+    /** Returns recent chat history for the frontend to display on load. */
+    @GetMapping(value = "/chat/history", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> chatHistory() {
+        List<Map<String, Object>> messages = transcriptService.getStructuredHistory();
+        return Map.of("messages", messages);
     }
 
     @PostMapping(value = "/chat", produces = MediaType.APPLICATION_JSON_VALUE)
