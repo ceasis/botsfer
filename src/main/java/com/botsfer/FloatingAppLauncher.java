@@ -79,7 +79,19 @@ public class FloatingAppLauncher extends Application {
         String url = "http://localhost:" + port + "/";
         engine.load(url);
 
-        bridge = new WindowBridge(primaryStage, collapsedWidth, collapsedHeight, expandedWidth, expandedHeight);
+        // Make the WebView node itself transparent (removes default white background)
+        webView.setStyle("-fx-background-color: transparent;");
+
+        ChatService chatService = springContext.getBean(ChatService.class);
+        NativeVoiceService nativeVoiceService = new NativeVoiceService(chatService);
+        bridge = new WindowBridge(
+                primaryStage,
+                collapsedWidth,
+                collapsedHeight,
+                expandedWidth,
+                expandedHeight,
+                nativeVoiceService
+        );
         engine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
             if (newState == Worker.State.SUCCEEDED) {
                 try {
@@ -87,6 +99,9 @@ public class FloatingAppLauncher extends Application {
                     if (window != null) {
                         window.setMember("java", bridge);
                     }
+                    // Force the WebView's internal page background to transparent
+                    engine.executeScript("document.documentElement.style.background='transparent';"
+                            + "document.body.style.background='transparent';");
                 } catch (Exception e) {
                     // Bridge may fail in some environments
                 }
@@ -96,40 +111,51 @@ public class FloatingAppLauncher extends Application {
         Scene scene = new Scene(webView, collapsedWidth, collapsedHeight, Color.TRANSPARENT);
         scene.setFill(Color.TRANSPARENT);
 
-        // Native drag for the ball area only (top-left 64x64). Other clicks pass through to WebView/input.
+        // JavaFX WebView on Windows transparent stages does not route native mouse
+        // events to Chromium. We intercept ALL mouse events here and forward
+        // non-ball clicks into JavaScript via document.elementFromPoint().
         final double[] anchor = new double[4];
-        final boolean[] dragging = { false };
-        final boolean[] moved = { false };
+        final boolean[] dragging = {false};
+        final boolean[] moved = {false};
         final double threshold = 5.0;
 
         scene.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> {
             if (e.getButton() != MouseButton.PRIMARY) return;
             boolean inBall = e.getX() < collapsedWidth && e.getY() < collapsedHeight;
-            if (!inBall) {
-                webView.requestFocus();
-                return;
-            }
-            if (e.getClickCount() == 2) {
-                if (bridge.isExpanded()) {
-                    bridge.collapse();
-                    engine.executeScript("document.getElementById('root').classList.remove('expanded')");
-                } else {
-                    bridge.expand();
-                    engine.executeScript(
-                            "document.getElementById('root').classList.add('expanded');" +
-                                    "var i=document.getElementById('input'); if(i){ setTimeout(function(){i.focus();}, 60); }"
-                    );
-                    webView.requestFocus();
+            if (inBall) {
+                if (e.getClickCount() == 2) {
+                    if (bridge.isExpanded()) {
+                        bridge.collapse();
+                        engine.executeScript("document.getElementById('root').classList.remove('expanded')");
+                    } else {
+                        bridge.expand();
+                        engine.executeScript(
+                                "document.getElementById('root').classList.add('expanded');"
+                                + "setTimeout(function(){var i=document.getElementById('input');if(i)i.focus();},80);"
+                        );
+                    }
+                    e.consume();
+                    return;
                 }
-                e.consume();
-                return;
+                anchor[0] = e.getScreenX();
+                anchor[1] = e.getScreenY();
+                anchor[2] = primaryStage.getX();
+                anchor[3] = primaryStage.getY();
+                dragging[0] = true;
+                moved[0] = false;
+            } else {
+                // Forward click to the HTML element at (x, y)
+                engine.executeScript(String.format(
+                        "(function(){var el=document.elementFromPoint(%d,%d);"
+                        + "if(!el)return;"
+                        + "if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){el.focus();return;}"
+                        + "if(typeof el.click==='function'){el.click();return;}"
+                        + "var ev=new MouseEvent('click',{bubbles:true,cancelable:true,view:window});"
+                        + "el.dispatchEvent(ev);"
+                        + "})()",
+                        (int) e.getX(), (int) e.getY()
+                ));
             }
-            anchor[0] = e.getScreenX();
-            anchor[1] = e.getScreenY();
-            anchor[2] = primaryStage.getX();
-            anchor[3] = primaryStage.getY();
-            dragging[0] = true;
-            moved[0] = false;
             e.consume();
         });
 
@@ -140,28 +166,25 @@ public class FloatingAppLauncher extends Application {
             if (!moved[0] && (Math.abs(dx) > threshold || Math.abs(dy) > threshold)) {
                 moved[0] = true;
             }
-            if (!moved[0]) return;
-            primaryStage.setX(anchor[2] + dx);
-            primaryStage.setY(anchor[3] + dy);
-            anchor[0] = e.getScreenX();
-            anchor[1] = e.getScreenY();
-            anchor[2] = primaryStage.getX();
-            anchor[3] = primaryStage.getY();
+            if (moved[0]) {
+                primaryStage.setX(anchor[2] + dx);
+                primaryStage.setY(anchor[3] + dy);
+            }
             e.consume();
         });
 
         scene.addEventFilter(MouseEvent.MOUSE_RELEASED, e -> {
-            if (!dragging[0]) return;
-            if (!moved[0] && !bridge.isExpanded()) {
-                bridge.expand();
-                engine.executeScript(
-                        "document.getElementById('root').classList.add('expanded');" +
-                                "var i=document.getElementById('input'); if(i){ setTimeout(function(){i.focus();}, 60); }"
-                );
-                webView.requestFocus();
+            if (dragging[0]) {
+                if (!moved[0] && !bridge.isExpanded()) {
+                    bridge.expand();
+                    engine.executeScript(
+                            "document.getElementById('root').classList.add('expanded');"
+                            + "setTimeout(function(){var i=document.getElementById('input');if(i)i.focus();},80);"
+                    );
+                }
+                dragging[0] = false;
+                moved[0] = false;
             }
-            dragging[0] = false;
-            moved[0] = false;
             e.consume();
         });
 
@@ -183,7 +206,9 @@ public class FloatingAppLauncher extends Application {
         }
 
         primaryStage.show();
+        Platform.runLater(webView::requestFocus);
         primaryStage.setOnCloseRequest(e -> {
+            bridge.shutdownNativeVoice();
             Platform.exit();
             if (springContext != null) {
                 SpringApplication.exit(springContext);

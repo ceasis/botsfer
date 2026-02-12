@@ -13,15 +13,18 @@ public class WindowBridge {
     private final int collapsedHeight;
     private final int expandedWidth;
     private final int expandedHeight;
+    private final NativeVoiceService nativeVoiceService;
     private volatile boolean expanded;
 
     public WindowBridge(Stage stage, int collapsedWidth, int collapsedHeight,
-                        int expandedWidth, int expandedHeight) {
+                        int expandedWidth, int expandedHeight,
+                        NativeVoiceService nativeVoiceService) {
         this.stage = stage;
         this.collapsedWidth = collapsedWidth;
         this.collapsedHeight = collapsedHeight;
         this.expandedWidth = expandedWidth;
         this.expandedHeight = expandedHeight;
+        this.nativeVoiceService = nativeVoiceService;
     }
 
     public boolean isExpanded() {
@@ -62,5 +65,44 @@ public class WindowBridge {
             stage.setX(x);
             stage.setY(y);
         });
+    }
+
+    /** Whether native voice recognition is available on this OS. */
+    public boolean isNativeVoiceAvailable() {
+        return nativeVoiceService != null && nativeVoiceService.isAvailable();
+    }
+
+    /** Start one-shot native voice capture. */
+    public boolean startNativeVoice() {
+        return nativeVoiceService != null && nativeVoiceService.start();
+    }
+
+    /** Stop current native voice capture. */
+    public void stopNativeVoice() {
+        if (nativeVoiceService != null) {
+            nativeVoiceService.stop();
+        }
+    }
+
+    /** True while native voice capture is active. */
+    public boolean isNativeVoiceListening() {
+        return nativeVoiceService != null && nativeVoiceService.isListening();
+    }
+
+    /** Retrieve latest transcript once (returns empty string when none). */
+    public String consumeNativeVoiceTranscript() {
+        return nativeVoiceService == null ? "" : nativeVoiceService.consumeTranscript();
+    }
+
+    /** Retrieve latest voice error once (returns empty string when none). */
+    public String consumeNativeVoiceError() {
+        return nativeVoiceService == null ? "" : nativeVoiceService.consumeError();
+    }
+
+    /** Cleanup hook. */
+    public void shutdownNativeVoice() {
+        if (nativeVoiceService != null) {
+            nativeVoiceService.shutdown();
+        }
     }
 }

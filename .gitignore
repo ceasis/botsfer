@@ -1,5 +1,6 @@
 *.class
 /target
+application-secrets.properties
 
 # Memory data (persistent runtime files)
 memory/*

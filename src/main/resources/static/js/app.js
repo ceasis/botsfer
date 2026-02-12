@@ -87,20 +87,8 @@
   document.addEventListener('dragenter', noDrag, true);
   document.addEventListener('dragleave', noDrag, true);
 
-  ballContainer.addEventListener('click', function (e) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!root.classList.contains('expanded')) {
-      expand();
-    }
-  });
-
-  // Double-click the ball to open / close the chatbot panel
-  ballContainer.addEventListener('dblclick', function (e) {
-    e.preventDefault();
-    e.stopPropagation();
-    togglePanel();
-  });
+  // Ball click/dblclick are handled by Java event filters which forward
+  // clicks to JS via document.elementFromPoint(). Drag is handled in Java.
 
   closeBtn.addEventListener('click', collapse);
 
@@ -162,15 +150,81 @@
     }
   });
 
+  // Fallback for embedded WebView cases where input keydown can be flaky.
+  document.addEventListener('keydown', function (e) {
+    if (!root.classList.contains('expanded')) return;
+    if (document.activeElement !== inputEl) return;
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    e.preventDefault();
+    sendMessage(inputEl.value);
+    focusInputSoon();
+  }, true);
+
   // Voice (Web Speech API)
   let recognition = null;
   let isListening = false;
   let voiceEnabled = false;
+  let nativeVoicePollTimer = null;
+
+  function hasNativeVoice() {
+    return typeof window.java !== 'undefined'
+      && typeof window.java.isNativeVoiceAvailable === 'function'
+      && window.java.isNativeVoiceAvailable();
+  }
+
+  function setListeningUi(listening) {
+    isListening = !!listening;
+    voiceBtn.classList.toggle('listening', isListening);
+    if (isListening) {
+      setVoiceStatus('Listening...', true);
+    } else if (!voiceEnabled) {
+      setVoiceStatus('', false);
+    }
+  }
+
+  function startNativeVoicePolling() {
+    if (nativeVoicePollTimer) {
+      clearInterval(nativeVoicePollTimer);
+      nativeVoicePollTimer = null;
+    }
+    nativeVoicePollTimer = setInterval(function () {
+      if (typeof window.java === 'undefined') return;
+      var err = window.java.consumeNativeVoiceError();
+      if (err) {
+        setListeningUi(false);
+        setVoiceStatus(err, true);
+        clearInterval(nativeVoicePollTimer);
+        nativeVoicePollTimer = null;
+        return;
+      }
+
+      var text = window.java.consumeNativeVoiceTranscript();
+      if (text) {
+        appendMessage(text, false);
+        setListeningUi(false);
+        setVoiceStatus('', false);
+        clearInterval(nativeVoicePollTimer);
+        nativeVoicePollTimer = null;
+        return;
+      }
+
+      if (!window.java.isNativeVoiceListening()) {
+        setListeningUi(false);
+        clearInterval(nativeVoicePollTimer);
+        nativeVoicePollTimer = null;
+      }
+    }, 180);
+  }
 
   function setVoiceEnabled(enabled) {
     voiceEnabled = !!enabled;
-    if (!voiceEnabled && recognition && isListening) {
-      recognition.stop();
+    if (!voiceEnabled && isListening) {
+      if (hasNativeVoice() && typeof window.java.stopNativeVoice === 'function') {
+        window.java.stopNativeVoice();
+      } else if (recognition) {
+        recognition.stop();
+      }
+      setListeningUi(false);
     }
     if (voiceToggleLabel) {
       voiceToggleLabel.textContent = voiceEnabled ? 'Voice On' : 'Voice Off';
@@ -187,7 +241,7 @@
     }
   }
 
-  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+  if (!hasNativeVoice() && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     recognition = new SpeechRecognition();
     recognition.continuous = false;
@@ -206,21 +260,19 @@
     };
 
     recognition.onend = function () {
-      isListening = false;
-      voiceBtn.classList.remove('listening');
+      setListeningUi(false);
       setVoiceStatus('', false);
     };
 
     recognition.onerror = function () {
-      isListening = false;
-      voiceBtn.classList.remove('listening');
+      setListeningUi(false);
       setVoiceStatus('Voice error. Try again.', true);
     };
   }
 
   if (voiceToggleBtn) {
     voiceToggleBtn.addEventListener('click', function () {
-      if (!recognition) {
+      if (!recognition && !hasNativeVoice()) {
         setVoiceStatus('Voice not supported in this browser.', true);
         return;
       }
@@ -233,21 +285,36 @@
   }
 
   voiceBtn.addEventListener('click', function () {
-    if (!voiceEnabled) {
-      setVoiceStatus('Voice is off. Click Voice On.', true);
-      return;
-    }
-    if (!recognition) {
+    if (!recognition && !hasNativeVoice()) {
       setVoiceStatus('Voice not supported in this browser.', true);
       return;
     }
+    if (!voiceEnabled) {
+      setVoiceEnabled(true);
+      setVoiceStatus('Voice enabled.', true);
+      setTimeout(function () { setVoiceStatus('', false); }, 900);
+    }
     if (isListening) {
-      recognition.stop();
+      if (hasNativeVoice() && typeof window.java.stopNativeVoice === 'function') {
+        window.java.stopNativeVoice();
+      } else if (recognition) {
+        recognition.stop();
+      }
+      setListeningUi(false);
       return;
     }
-    isListening = true;
-    voiceBtn.classList.add('listening');
-    setVoiceStatus('Listening...', true);
+
+    setListeningUi(true);
+    if (hasNativeVoice()) {
+      if (!window.java.startNativeVoice()) {
+        setListeningUi(false);
+        setVoiceStatus('Voice recognizer is busy.', true);
+        return;
+      }
+      startNativeVoicePolling();
+      return;
+    }
+
     recognition.start();
   });
 

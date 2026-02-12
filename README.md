@@ -104,6 +104,77 @@ java --add-modules javafx.controls,javafx.web,javafx.fxml --add-opens java.base/
 
 Override with environment variables (e.g. `BOTSFER_PORT=9090`) or by editing `src/main/resources/application.properties`.
 
+### Local secrets file (not committed)
+
+This project supports a separate secrets file for API keys:
+
+- File path: `application-secrets.properties` (project root)
+- Loaded automatically via:
+  - `spring.config.import=optional:file:./application-secrets.properties`
+- Ignored by git via `.gitignore`
+
+Setup:
+
+1. Copy `application-secrets.properties.example` to `application-secrets.properties`.
+2. Put your secrets there (for example `app.openai.api-key`).
+3. Run the app normally (`mvn spring-boot:run`).
+
+Example `application-secrets.properties`:
+
+```properties
+app.openai.enabled=true
+app.openai.api-key=sk-...
+app.openai.base-url=https://api.openai.com/v1
+app.openai.audio-model=gpt-4o-audio-preview
+```
+
+`application-secrets.properties.example` also includes API-key placeholders for major providers
+(Anthropic, Google AI/Gemini, Azure OpenAI, Cohere, Mistral, Groq, Perplexity, xAI, Together, OpenRouter).
+At the moment, only `app.openai.*` is wired in runtime code; the others are ready for future integrations.
+
+### Environment configuration
+
+Spring Boot maps `app.openai.*` properties to uppercase env vars with `_` separators:
+
+- `app.openai.enabled` -> `APP_OPENAI_ENABLED`
+- `app.openai.api-key` -> `APP_OPENAI_API_KEY`
+- `app.openai.base-url` -> `APP_OPENAI_BASE_URL`
+- `app.openai.audio-model` -> `APP_OPENAI_AUDIO_MODEL`
+
+You can also set `server.port` using `BOTSFER_PORT`.
+
+Examples:
+
+**Windows PowerShell (current shell):**
+
+```powershell
+$env:APP_OPENAI_ENABLED="true"
+$env:APP_OPENAI_API_KEY="sk-..."
+$env:APP_OPENAI_AUDIO_MODEL="gpt-4o-audio-preview"
+$env:BOTSFER_PORT="8765"
+mvn spring-boot:run
+```
+
+**Windows PowerShell (persist for user):**
+
+```powershell
+[Environment]::SetEnvironmentVariable("APP_OPENAI_ENABLED", "true", "User")
+[Environment]::SetEnvironmentVariable("APP_OPENAI_API_KEY", "sk-...", "User")
+[Environment]::SetEnvironmentVariable("APP_OPENAI_AUDIO_MODEL", "gpt-4o-audio-preview", "User")
+```
+
+**macOS / Linux:**
+
+```bash
+export APP_OPENAI_ENABLED=true
+export APP_OPENAI_API_KEY="sk-..."
+export APP_OPENAI_AUDIO_MODEL="gpt-4o-audio-preview"
+export BOTSFER_PORT=8765
+mvn spring-boot:run
+```
+
+Note: configure `src/main/resources/application.properties`, not `target/classes/application.properties` (that target file is build output and gets overwritten).
+
 ### Viber integration
 
 1. Create a Viber bot (commercial terms may apply; see [Viber for developers](https://developers.viber.com/docs/api/rest-bot-api/)).
