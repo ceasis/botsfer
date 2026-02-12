@@ -12,7 +12,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PostConstruct;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -71,6 +73,18 @@ public class ChatService {
         this.taskStatusTool = taskStatusTool;
         this.chatHistoryTool = chatHistoryTool;
         this.toolNotifier = toolNotifier;
+    }
+
+    @PostConstruct
+    public void diagnostics() {
+        String cwd = System.getProperty("user.dir");
+        File secretsFile = new File(cwd, "application-secrets.properties");
+        log.info("╔══════════════════════════════════════════════════════════════╗");
+        log.info("║  [ChatService] Working directory: {}", cwd);
+        log.info("║  [ChatService] Secrets file exists: {} ({})", secretsFile.exists(), secretsFile.getAbsolutePath());
+        log.info("║  [ChatService] ChatClient injected: {}", chatClient != null);
+        log.info("║  [ChatService] OpenAI API key (audio): {}", (openAiApiKey != null && !openAiApiKey.isBlank()) ? "SET" : "NOT SET");
+        log.info("╚══════════════════════════════════════════════════════════════╝");
     }
 
     /** Returns and removes the next async result, or null if none. */
@@ -152,7 +166,7 @@ public class ChatService {
 
         // 3. No AI configured and no regex match
         if (chatClient == null) {
-            String noAiReply = "AI is not connected. Set your OpenAI API key in application-secrets.properties to enable conversations.";
+            String noAiReply = "AI is not connected. Set your OpenAI API key in application-secrets.properties (project root) or set the OPENAI_API_KEY environment variable, then restart.";
             transcriptService.save("BOT", noAiReply);
             return noAiReply;
         }

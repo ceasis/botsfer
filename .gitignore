@@ -5,3 +5,4 @@ application-secrets.properties
 # Memory data (persistent runtime files)
 memory/*
 !memory/.gitkeep
+nul
