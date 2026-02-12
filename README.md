@@ -10,8 +10,8 @@ All configuration is in `application.properties`.
 - **Collapsed state**: A single swirling animated ball (gradient orb).
 - **Expanded state** (on mouse over): Full chat UI with message history, text input, and send button.
 - **Voice input**: Microphone button uses the Web Speech API (browser/WebView) for speech-to-text.
-- **REST chat API**: `POST /api/chat` with `{"message":"..."}`; reply comes from the backend (placeholder logic by default; you can plug in your own).
-- **Viber Bot** (optional): Receive messages from Viber and reply with the same chat logic. Configure in `application.properties` and expose the webhook via HTTPS.
+- **REST chat API**: `POST /api/chat` with `{"message":"..."}`; reply comes from the backend (OpenAI tool-calling by default; you can plug in your own).
+- **Messaging integrations** (optional): Connect the same chatbot to **10 platforms** via webhooks. Each integration is disabled by default; enable and set tokens in `application.properties` (or secrets). All use the same reply logic (`ChatService`).
 
 ## Requirements
 
@@ -97,10 +97,8 @@ java --add-modules javafx.controls,javafx.web,javafx.fxml --add-opens java.base/
 | `app.window.hover.expand.delay-ms` | Delay before expanding on hover | `150` |
 | `app.window.hover.collapse.delay-ms` | Delay before collapsing on mouse out | `400` |
 | `app.chat.placeholder.enabled` | Use built-in placeholder replies | `true` |
-| `app.viber.enabled` | Enable Viber bot (receive/send via webhook) | `false` |
-| `app.viber.auth-token` | Viber bot auth token (app key from Viber) | (empty) |
-| `app.viber.bot-name` | Name shown as sender in Viber | `Botsfer` |
-| `app.viber.webhook-url` | Public HTTPS URL for webhook (e.g. ngrok). If set, registered on startup | (empty) |
+
+**Messaging integrations:** Each platform has `app.<platform>.enabled=false` and its own token/ID properties. See [Messaging integrations](#messaging-integrations) below for endpoints and setup.
 
 Override with environment variables (e.g. `BOTSFER_PORT=9090`) or by editing `src/main/resources/application.properties`.
 
@@ -116,21 +114,19 @@ This project supports a separate secrets file for API keys:
 Setup:
 
 1. Copy `application-secrets.properties.example` to `application-secrets.properties`.
-2. Put your secrets there (for example `app.openai.api-key`).
+2. Put your secrets there (e.g. `spring.ai.openai.api-key` for the AI, and any messaging tokens like `app.telegram.bot-token`).
 3. Run the app normally (`mvn spring-boot:run`).
 
 Example `application-secrets.properties`:
 
 ```properties
-app.openai.enabled=true
-app.openai.api-key=sk-...
-app.openai.base-url=https://api.openai.com/v1
-app.openai.audio-model=gpt-4o-audio-preview
+spring.ai.openai.api-key=sk-...
+# Optional: keep messaging tokens here instead of application.properties
+# app.telegram.bot-token=...
+# app.discord.bot-token=...
 ```
 
-`application-secrets.properties.example` also includes API-key placeholders for major providers
-(Anthropic, Google AI/Gemini, Azure OpenAI, Cohere, Mistral, Groq, Perplexity, xAI, Together, OpenRouter).
-At the moment, only `app.openai.*` is wired in runtime code; the others are ready for future integrations.
+`application-secrets.properties.example` also includes placeholders for other LLM providers (Anthropic, Gemini, Azure OpenAI, etc.); only OpenAI is wired for chat. Messaging platform tokens (`app.viber.auth-token`, `app.telegram.bot-token`, etc.) can go in this file to keep them out of version control.
 
 ### Environment configuration
 
@@ -175,17 +171,30 @@ mvn spring-boot:run
 
 Note: configure `src/main/resources/application.properties`, not `target/classes/application.properties` (that target file is build output and gets overwritten).
 
-### Viber integration
+### Messaging integrations
 
-1. Create a Viber bot (commercial terms may apply; see [Viber for developers](https://developers.viber.com/docs/api/rest-bot-api/)).
+The same chatbot can receive and reply to messages on multiple platforms. Each integration is **off** by default. Enable the ones you need and set the required tokens/IDs in `application.properties` or `application-secrets.properties`. **All webhooks require public HTTPS** (use [ngrok](https://ngrok.com/) for local dev: `ngrok http 8765`).
+
+| Platform | Webhook endpoint | Config prefix | Docs / notes |
+|----------|------------------|---------------|--------------|
+| **Viber** | `POST /api/viber/webhook` | `app.viber.*` | [Viber Bot API](https://developers.viber.com/docs/api/rest-bot-api/) — auth-token, webhook-url (auto-registered if set) |
+| **Telegram** | `POST /api/telegram/webhook` | `app.telegram.*` | [Telegram Bots](https://core.telegram.org/bots/api) — bot-token, webhook-url (auto-registered) |
+| **Discord** | `POST /api/discord/interactions` | `app.discord.*` | [Discord Developer](https://discord.com/developers/docs/intro) — bot-token, application-id, public-key; set Interactions Endpoint URL in Dev Portal |
+| **Slack** | `POST /api/slack/events` | `app.slack.*` | [Slack API](https://api.slack.com/) — bot-token, signing-secret, app-token; Events API Request URL |
+| **WhatsApp** | `POST /api/whatsapp/webhook` | `app.whatsapp.*` | [Meta Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api) — access-token, phone-number-id, verify-token |
+| **Messenger** | `POST /api/messenger/webhook` | `app.messenger.*` | [Messenger Platform](https://developers.facebook.com/docs/messenger-platform) — page-access-token, verify-token, app-secret |
+| **LINE** | `POST /api/line/webhook` | `app.line.*` | [LINE Messaging API](https://developers.line.biz/en/docs/messaging-api/) — channel-access-token, channel-secret |
+| **Teams** | `POST /api/teams/messages` | `app.teams.*` | [Azure Bot Service](https://learn.microsoft.com/en-us/azure/bot-service/) — app-id, app-password, tenant-id |
+| **WeChat** | `POST /api/wechat/webhook` | `app.wechat.*` | [WeChat Official Account](https://developers.weixin.qq.com/doc/offiaccount/en/) — app-id, app-secret, token, encoding-aes-key |
+| **Signal** | `POST /api/signal/webhook` | `app.signal.*` | [signal-cli-rest-api](https://github.com/bbernhard/signal-cli-rest-api) — requires separate signal-cli-rest-api instance; api-url, phone-number |
+
+**Example — Viber**
+
+1. Create a Viber bot ([Viber for developers](https://developers.viber.com/docs/api/rest-bot-api/)).
 2. In Viber: **More → Settings → Bots → Edit Info → Your app key** — copy the token.
-3. Set in `application.properties`:
-   - `app.viber.enabled=true`
-   - `app.viber.auth-token=YOUR_TOKEN`
-4. Expose your app with **HTTPS** so Viber can call the webhook (they do not accept HTTP or self-signed certs):
-   - **Local dev**: use [ngrok](https://ngrok.com/) or similar: `ngrok http 8765`, then set `app.viber.webhook-url=https://YOUR_NGROK_URL/api/viber/webhook`. Restart the app to register the webhook, or call Viber’s `set_webhook` API once with that URL.
-   - **Production**: deploy behind HTTPS and set `app.viber.webhook-url=https://yourdomain.com/api/viber/webhook`.
-5. Webhook endpoint: `POST /api/viber/webhook` — Viber sends callbacks here. The app replies to text messages using the same logic as the in-app chat (`ChatService`).
+3. Set in `application.properties`: `app.viber.enabled=true`, `app.viber.auth-token=YOUR_TOKEN`.
+4. Expose HTTPS (e.g. ngrok): set `app.viber.webhook-url=https://YOUR_NGROK_URL/api/viber/webhook`. Restart the app; the webhook is registered on startup.
+5. Viber sends events to `POST /api/viber/webhook`; the app replies using the same `ChatService` logic as the desktop chat.
 
 ## Project layout
 
@@ -195,16 +204,27 @@ botsfer/
 ├── README.md
 ├── src/main/java/com/botsfer/
 │   ├── BotsferApplication.java      # Spring Boot entry
-│   ├── FloatingAppLauncher.java    # JavaFX entry, starts Spring & floating window
-│   ├── WindowBridge.java           # JS ↔ Java (expand/collapse)
-│   ├── ChatController.java         # REST /api/chat
-│   ├── ChatService.java            # Shared reply logic (app + Viber)
-│   ├── ViberConfig.java            # Viber properties
-│   ├── ViberApiClient.java         # Viber REST API (set_webhook, send_message)
-│   ├── ViberWebhookController.java # POST /api/viber/webhook
-│   └── ViberWebhookRegistrar.java  # Optional set_webhook on startup
+│   ├── FloatingAppLauncher.java     # JavaFX entry, starts Spring & floating window
+│   ├── WindowBridge.java            # JS ↔ Java (expand/collapse/drag/voice)
+│   ├── ChatController.java          # REST /api/chat, /api/chat/async, /api/chat/status
+│   ├── ChatService.java             # Shared reply logic (desktop + all messaging platforms)
+│   ├── config/                      # OpenAI secrets loader, etc.
+│   ├── agent/                       # AI config, tools, system context, PcAgent
+│   ├── memory/                      # MemoryService (notes), MemoryConfig
+│   ├── skills/                      # Optional skills (e.g. diskscan)
+│   ├── ViberConfig.java             # + ViberApiClient, ViberWebhookController, ViberWebhookRegistrar
+│   ├── TelegramConfig.java          # + TelegramApiClient, TelegramWebhookController, TelegramWebhookRegistrar
+│   ├── DiscordConfig.java           # + DiscordApiClient, DiscordWebhookController
+│   ├── SlackConfig.java             # + SlackApiClient, SlackEventController
+│   ├── WhatsAppConfig.java          # + WhatsAppApiClient, WhatsAppWebhookController
+│   ├── MessengerConfig.java         # + MessengerApiClient, MessengerWebhookController
+│   ├── LineConfig.java              # + LineApiClient, LineWebhookController
+│   ├── TeamsConfig.java             # + TeamsApiClient, TeamsWebhookController
+│   ├── WeChatConfig.java            # + WeChatApiClient, WeChatWebhookController
+│   └── SignalConfig.java            # + SignalApiClient, SignalWebhookController
 └── src/main/resources/
-    ├── application.properties
+    ├── application.properties       # All config (window, platforms, skills, memory, etc.)
+    ├── application-secrets.properties  # Optional, gitignored (OpenAI key, etc.)
     └── static/
         ├── index.html
         ├── css/style.css
@@ -213,7 +233,7 @@ botsfer/
 
 ## Customizing the chatbot
 
-- **Backend logic**: Edit `ChatService.java` — `getReply()` is used by both the in-app chat and the Viber bot. Replace or extend the placeholder logic (or call your own services).
+- **Backend logic**: Edit `ChatService.java` — `getReply()` is used by the desktop chat and **all messaging integrations**. Replace or extend the logic (OpenAI tool-calling, regex fallback, or your own services).
 - **UI**: Edit `src/main/resources/static/` (HTML, CSS, JS). The floating window is a JavaFX `WebView` loading the app at `http://localhost:<server.port>/`.
 - **Voice**: Voice input uses the Web Speech API in the WebView; no backend change needed for basic speech-to-text.
 

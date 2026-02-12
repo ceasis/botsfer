@@ -3,7 +3,11 @@
     "allow": [
       "Bash(mvn clean compile:*)",
       "Bash(mvn compile:*)",
-      "Bash(mvn compiler:compile:*)"
+      "Bash(mvn compiler:compile:*)",
+      "Bash(mvn dependency:tree:*)",
+      "Bash(Select-String \"ollama\")",
+      "Bash(jar tf:*)",
+      "Bash(javap:*)"
     ]
   }
 }

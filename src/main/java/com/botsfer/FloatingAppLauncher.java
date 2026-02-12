@@ -66,7 +66,7 @@ public class FloatingAppLauncher extends Application {
         int port = env.getProperty("server.port", Integer.class, 8765);
         int collapsedWidth = env.getProperty("app.window.collapsed.width", Integer.class, 64);
         int collapsedHeight = env.getProperty("app.window.collapsed.height", Integer.class, 64);
-        int expandedWidth = env.getProperty("app.window.expanded.width", Integer.class, 380);
+        int expandedWidth = env.getProperty("app.window.expanded.width", Integer.class, 456);
         int expandedHeight = env.getProperty("app.window.expanded.height", Integer.class, 520);
         int initialX = env.getProperty("app.window.initial.x", Integer.class, -1);
         int initialY = env.getProperty("app.window.initial.y", Integer.class, -1);

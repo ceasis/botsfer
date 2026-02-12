@@ -39,6 +39,11 @@ A swirling animated ball sits on the desktop; double-click expands a chat panel.
 │                          │         │  TaskStatusTool (1) │     │
 │                          │         │  ClipboardTools (2)│     │
 │                          │         │  MemoryTools (4)    │     │
+│                          │         │  ImageTools (6)     │     │
+│                          │         │  WeatherTools, NotificationTools │
+│                          │         │  CalculatorTools, QrTools, DownloadTools │
+│                          │         │  HashTools, UnitConversionTools, TimerTools │
+│                          │         │  TtsTools, PdfTools  │     │
 │                          │         └─────────────────────┘     │
 │                          │                                     │
 │                          ├──► PcAgentService (regex fallback)  │
@@ -93,6 +98,17 @@ src/main/java/com/botsfer/
 │       ├── TaskStatusTool.java          # 1 @Tool method (background task status)
 │       ├── ClipboardTools.java          # 2 @Tool methods (get/set clipboard text)
 │       ├── MemoryTools.java             # 4 @Tool methods (notes) → MemoryService
+│       ├── ImageTools.java              # 6 @Tool methods (flip, rotate, grayscale, resize, info)
+│       ├── WeatherTools.java            # 1 @Tool (Open-Meteo)
+│       ├── NotificationTools.java       # 1 @Tool (tray / toast)
+│       ├── CalculatorTools.java        # 1 @Tool (safe arithmetic)
+│       ├── QrTools.java                 # 2 @Tool (generate/decode QR)
+│       ├── DownloadTools.java           # 1 @Tool (download URL to file)
+│       ├── HashTools.java               # 2 @Tool (SHA-256, SHA-1)
+│       ├── UnitConversionTools.java     # 1 @Tool (length, weight, temp)
+│       ├── TimerTools.java              # 1 @Tool (reminder → notification)
+│       ├── TtsTools.java                # 1 @Tool (Windows SAPI read aloud)
+│       ├── PdfTools.java                # 1 @Tool (extract text)
 │       └── ToolExecutionNotifier.java   # Status message queue for frontend polling
 │
 ├── memory/
@@ -314,6 +330,98 @@ Spring AI auto-generates tool schemas from `@Tool` annotations and handles the f
 | `deleteNote(key)` | Delete a saved note | MemoryService |
 
 When `app.memory.enabled=false`, note tools return a disabled message.
+
+### ImageTools (6 tools)
+
+Manipulate images on disk. All operations save to a **new file** (suffix before extension) so originals are not overwritten. Supports PNG, JPG, GIF, BMP.
+
+| Tool | Description |
+|------|-------------|
+| `flipImageVertical(imagePath)` | Flip top/bottom. Output: `*_vflip.png` (or same ext). |
+| `flipImageHorizontal(imagePath)` | Flip left/right. Output: `*_hflip.*`. |
+| `imageToBlackAndWhite(imagePath)` | Convert to grayscale. Output: `*_bw.*`. |
+| `rotateImage(imagePath, degrees)` | Rotate 90, 180, or 270° clockwise. Output: `*_rot90.*`, etc. |
+| `resizeImage(imagePath, width, height)` | Resize to given dimensions. Output: `*_WxH.*` (e.g. `*_800x600.png`). |
+| `getImageInfo(imagePath)` | Return dimensions, file size, and format. |
+
+### HuggingFaceImageTool (2 tools)
+
+Discover and run Hugging Face image-classification models locally (ONNX only). Models are downloaded and cached automatically.
+
+| Tool | Description |
+|------|-------------|
+| `searchHuggingFaceImageModels(search)` | Search HF for image-classification models by keyword (e.g. nsfw, censored). Returns model IDs and tags. |
+| `classifyImageWithHf(imagePath, modelId)` | Download model if needed, run local ONNX inference (e.g. suko/nsfw for NSFW detection). Returns class scores. |
+
+Config: `app.huggingface.cache-dir` (default `~/.cache/botsfer/hf_models`).
+
+### WeatherTools (1 tool)
+
+Uses [Open-Meteo](https://open-meteo.com/) (free, no API key). Geocodes place names and returns current conditions.
+
+| Tool | Description |
+|------|-------------|
+| `getWeather(location)` | Get current weather for a city or place (e.g. "New York", "London"). Returns temperature °C, conditions, humidity, wind. Accepts "lat,lon" for coordinates. |
+
+### NotificationTools (1 tool)
+
+| Tool | Description |
+|------|-------------|
+| `showNotification(title, message)` | Show a system notification (desktop popup / tray balloon). Use when the user asks to be notified, reminded, or when a long task finishes. Falls back to a message if system tray is not supported. |
+
+### CalculatorTools (1 tool)
+
+Safe arithmetic only (no script injection). Supports +, -, *, /, parentheses, ^ (power).
+
+| Tool | Description |
+|------|-------------|
+| `calculate(expression)` | Evaluate expression (e.g. "280 * 0.15", "(1+2)*3", "2^10"). Returns exact result. |
+
+### QrTools (2 tools)
+
+Generate and decode QR codes (ZXing).
+
+| Tool | Description |
+|------|-------------|
+| `generateQr(content, outputPath)` | Create QR code image from text/URL; save to file. |
+| `decodeQr(imagePath)` | Read QR code from image file; return decoded text. |
+
+### DownloadTools (1 tool)
+
+| Tool | Description |
+|------|-------------|
+| `downloadFile(url, savePath)` | Download file from URL and save to local path. |
+
+### HashTools (2 tools)
+
+| Tool | Description |
+|------|-------------|
+| `fileSha256(filePath)` | SHA-256 checksum of file. |
+| `fileSha1(filePath)` | SHA-1 checksum of file. |
+
+### UnitConversionTools (1 tool)
+
+| Tool | Description |
+|------|-------------|
+| `convert(value, fromUnit, toUnit)` | Convert length (mile, km, foot, m), weight (lb, kg), temperature (celsius, fahrenheit). |
+
+### TimerTools (1 tool)
+
+| Tool | Description |
+|------|-------------|
+| `setReminder(delayMinutes, title, message)` | After delay (1–1440 min), show a system notification. Use for "remind me in X minutes". |
+
+### TtsTools (1 tool)
+
+| Tool | Description |
+|------|-------------|
+| `speak(text)` | Read text aloud via Windows SAPI (PowerShell). Use for "read aloud" / "say". |
+
+### PdfTools (1 tool)
+
+| Tool | Description |
+|------|-------------|
+| `extractPdfText(pdfPath)` | Extract plain text from PDF (Apache PDFBox). Use to summarize or answer questions about a PDF. |
 
 ### App interaction (SystemTools)
 
@@ -587,6 +695,8 @@ spring.ai.openai.api-key=sk-...
 - **Spring AI:** `spring-ai-starter-model-openai:1.0.1`
 - **JavaFX:** `javafx-controls`, `javafx-web`, `javafx-fxml` — all `21.0.1`
 - **Platform profiles:** Windows/Mac/Linux — unpack JavaFX natives at build time
+- **ZXing:** `com.google.zxing:core`, `javase` 3.5.3 — QR generate/decode
+- **PDFBox:** `org.apache.pdfbox:pdfbox` 3.0.3 — PDF text extraction
 
 ### JVM Arguments
 
@@ -609,6 +719,67 @@ mvn compiler:compile             # Compile only (when jfxwebkit.dll locked)
 ## Spec maintenance
 
 **When adding or changing requirements:** Update this SPECS.md so it stays the single source of truth. Document new config properties, endpoints, behavior, and user-facing messages here.
+
+---
+
+## Hugging Face & local ML models (exploration)
+
+**Goal:** Let the AI decide when an image needs classification (e.g. “is this censored?”), find a suitable model on Hugging Face, download and set it up locally, run inference on the image, and return the result.
+
+### What’s possible
+
+| Approach | Discovery | Download | Run locally | Notes |
+|----------|-----------|----------|-------------|--------|
+| **HF REST API** | ✅ `GET /api/models?pipeline_tag=image-classification&search=nsfw` returns model IDs, tags, `library_name` | ✅ `https://huggingface.co/<id>/resolve/main/<path>` for file download (no auth for public) | N/A | Public, no token needed for listing/download |
+| **HF Inference API (cloud)** | Model ID in request | N/A | ❌ Runs on HF servers | Needs `HF_TOKEN`; not local |
+| **Local ONNX** | Same REST API to find models; filter by tag `onnx` | Same URL; cache to e.g. `~/.cache/botsfer/hf_models/<id>/` | ✅ **ONNX Runtime Java** or DJL | Some HF image models ship ONNX (e.g. `suko/nsfw`) |
+| **Local PyTorch/Transformers** | Same | Same or `huggingface-cli download` | ✅ Python subprocess + `transformers` | Requires Python env; good for any HF model |
+
+**Example ONNX model:** `suko/nsfw` — image-classification, tag `onnx`, input shape `[1, 224, 224, 3]`, output 2 classes (e.g. Naked / Safe). Can be downloaded and run entirely in Java with ONNX Runtime.
+
+### Recommended flow (implemented)
+
+1. **Discovery:** Tool calls Hugging Face API to list image-classification models (optional search, e.g. “nsfw”, “censored”). Returns model IDs and metadata so the AI can choose one.
+2. **Download:** For a chosen model ID, resolve repo file list (e.g. `/api/models/<id>/tree/main`), download `model.onnx` (and `signature.json` / `labels.txt` if present) to a local cache directory. Skip if already cached.
+3. **Run locally:** For ONNX models, load the cached `.onnx` with **ONNX Runtime for Java**, preprocess the image (resize to model input size, e.g. 224×224, normalize to float), run inference, map output tensor to labels. Return a short classification result to the user.
+
+**Limitations:** Only **ONNX** image models are run locally from Java. PyTorch/safetensors models would require a Python helper or conversion to ONNX. The AI can still *discover* any HF model; for non-ONNX models the tool can report “model is not ONNX; use HF Inference API or a Python script to run it”.
+
+### Implementation (Botsfer)
+
+- **HuggingFaceService:** HTTP client for `huggingface.co/api/models` (list) and `huggingface.co/<id>/resolve/main/<path>` (download); cache under `app.huggingface.cache-dir` (default `~/.cache/botsfer/hf_models`).
+- **HuggingFaceImageTool:**  
+  - `searchHuggingFaceImageModels(search)` — lists image-classification models (optional search term).  
+  - `classifyImageWithHf(imagePath, modelId)` — ensures the model is in cache (downloads if needed), runs local ONNX inference if the model is ONNX, returns classification (e.g. “Safe: 0.98, Naked: 0.02”). For non-ONNX models, returns a message suggesting HF Inference API or Python.
+- **HuggingFaceOnnxClassifier:** runs cached model.onnx (224×224 input), reads signature.json for labels.
+- **Dependencies:** `com.microsoft.onnxruntime:onnxruntime` (1.19.2). No Python required for ONNX path.
+
+### Spec maintenance
+
+**When adding or changing requirements:** Update this SPECS.md so it stays the single source of truth. Document new config properties, endpoints, behavior, and user-facing messages here.
+
+---
+
+## Potential additions (roadmap)
+
+Ideas to make Botsfer the most capable desktop bot. Ordered by impact vs effort.
+
+| Capability | Why it matters | Effort |
+|------------|----------------|--------|
+| **Weather** | "What's the weather?" — one of the most common questions. Open-Meteo API is free, no key. | Low: HTTP GET + parse JSON. |
+| **System notification / toast** | Bot can say "I'll notify you when done" and actually show a Windows toast. "Remind me in 10 min" → timer → toast. | Low: Java SystemTray or Windows toast API. |
+| **Timer / reminder** | "Set a timer for 20 minutes" — background delay then notify (toast or chat). Complements notes. | Medium: scheduler + notification. |
+| **Text-to-speech (TTS)** | "Read this out loud" — bot speaks the response. Huge for accessibility and hands-free use. | Medium: Windows SAPI, or free TTS API. |
+| **Calculator / safe math** | "What's 15% of 280?" — exact answer, no LLM hallucination. Safe expression eval or PowerShell. | Low. |
+| **QR code** | Generate QR from URL/text; decode QR from image (ZXing). Share links, read codes. | Low: ZXing library. |
+| **Download file from URL** | "Download this file to my Desktop" — generic save from URL to path. | Low: HTTP GET + save. |
+| **PDF text extraction** | "What does this PDF say?" — extract text so the LLM can summarize/answer (Apache PDFBox). | Medium: add dependency + tool. |
+| **Hash / checksum** | "What's the SHA-256 of this file?" — verification, security. | Low: Java MessageDigest. |
+| **Unit conversion** | "Convert 5 miles to km" — simple formulas (length, weight, temp). | Low. |
+| **Email (read/send)** | "Send an email to X", "Check my inbox" — IMAP/SMTP or OAuth. | High: auth + protocols. |
+| **Calendar** | "What's on my calendar?", "Schedule a meeting" — Google Calendar / Outlook API. | High: OAuth + API. |
+
+**Implemented:** Weather, Notification, Calculator, QR (generate/decode), Download file, Hash (SHA-256/SHA-1), Unit conversion, Timer/reminder, TTS (Windows SAPI), PDF text extraction.
 
 ---
 

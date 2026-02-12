@@ -14,6 +14,7 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
@@ -50,16 +51,49 @@ public class ChatService {
     private final ChatHistoryTool chatHistoryTool;
     private final ClipboardTools clipboardTools;
     private final MemoryTools memoryTools;
+    private final ImageTools imageTools;
+    private final HuggingFaceImageTool huggingFaceImageTool;
     private final DirectivesTools directivesTools;
+    private final DirectiveDataTools directiveDataTools;
+    private final WebScraperTools webScraperTools;
+    private final PlaywrightTools playwrightTools;
+    private final WeatherTools weatherTools;
+    private final NotificationTools notificationTools;
+    private final CalculatorTools calculatorTools;
+    private final QrTools qrTools;
+    private final DownloadTools downloadTools;
+    private final HashTools hashTools;
+    private final UnitConversionTools unitConversionTools;
+    private final TimerTools timerTools;
+    private final TtsTools ttsTools;
+    private final PdfTools pdfTools;
+    private final EmailTools emailTools;
+    private final ScheduledTaskTools scheduledTaskTools;
+    private final SummarizationTools summarizationTools;
+    private final ModelSwitchTools modelSwitchTools;
+    private final ExportTools exportTools;
+    private final GlobalHotkeyService globalHotkeyService;
+    private final PluginLoaderService pluginLoaderService;
+    private final SystemTrayService systemTrayService;
+    private final LocalModelTools localModelTools;
     private final ToolExecutionNotifier toolNotifier;
 
-    /** Spring AI ChatClient — null when no API key is configured. */
+    /** Spring AI ChatClient — null when no API key is configured. Swappable at runtime. */
     @Autowired(required = false)
-    private ChatClient chatClient;
+    private volatile ChatClient chatClient;
 
     /** Spring AI ChatMemory — null when Spring AI is not active. */
     @Autowired(required = false)
     private ChatMemory chatMemory;
+
+    /** Allow tools to swap the active ChatClient at runtime (e.g., switch to Ollama). */
+    public void setChatClient(ChatClient newClient) {
+        this.chatClient = newClient;
+    }
+
+    public ChatClient getChatClient() {
+        return this.chatClient;
+    }
 
     /** Async results from background agent tasks (polled by frontend). */
     private final ConcurrentLinkedQueue<String> asyncResults = new ConcurrentLinkedQueue<>();
@@ -75,7 +109,31 @@ public class ChatService {
                        ChatHistoryTool chatHistoryTool,
                        ClipboardTools clipboardTools,
                        MemoryTools memoryTools,
+                       ImageTools imageTools,
+                       HuggingFaceImageTool huggingFaceImageTool,
                        DirectivesTools directivesTools,
+                       DirectiveDataTools directiveDataTools,
+                       WebScraperTools webScraperTools,
+                       PlaywrightTools playwrightTools,
+                       WeatherTools weatherTools,
+                       NotificationTools notificationTools,
+                       CalculatorTools calculatorTools,
+                       QrTools qrTools,
+                       DownloadTools downloadTools,
+                       HashTools hashTools,
+                       UnitConversionTools unitConversionTools,
+                       TimerTools timerTools,
+                       TtsTools ttsTools,
+                       PdfTools pdfTools,
+                       EmailTools emailTools,
+                       ScheduledTaskTools scheduledTaskTools,
+                       SummarizationTools summarizationTools,
+                       ModelSwitchTools modelSwitchTools,
+                       ExportTools exportTools,
+                       GlobalHotkeyService globalHotkeyService,
+                       PluginLoaderService pluginLoaderService,
+                       SystemTrayService systemTrayService,
+                       LocalModelTools localModelTools,
                        ToolExecutionNotifier toolNotifier) {
         this.transcriptService = transcriptService;
         this.pcAgent = pcAgent;
@@ -88,7 +146,31 @@ public class ChatService {
         this.chatHistoryTool = chatHistoryTool;
         this.clipboardTools = clipboardTools;
         this.memoryTools = memoryTools;
+        this.imageTools = imageTools;
+        this.huggingFaceImageTool = huggingFaceImageTool;
         this.directivesTools = directivesTools;
+        this.directiveDataTools = directiveDataTools;
+        this.webScraperTools = webScraperTools;
+        this.playwrightTools = playwrightTools;
+        this.weatherTools = weatherTools;
+        this.notificationTools = notificationTools;
+        this.calculatorTools = calculatorTools;
+        this.qrTools = qrTools;
+        this.downloadTools = downloadTools;
+        this.hashTools = hashTools;
+        this.unitConversionTools = unitConversionTools;
+        this.timerTools = timerTools;
+        this.ttsTools = ttsTools;
+        this.pdfTools = pdfTools;
+        this.emailTools = emailTools;
+        this.scheduledTaskTools = scheduledTaskTools;
+        this.summarizationTools = summarizationTools;
+        this.modelSwitchTools = modelSwitchTools;
+        this.exportTools = exportTools;
+        this.globalHotkeyService = globalHotkeyService;
+        this.pluginLoaderService = pluginLoaderService;
+        this.systemTrayService = systemTrayService;
+        this.localModelTools = localModelTools;
         this.toolNotifier = toolNotifier;
     }
 
@@ -141,6 +223,18 @@ public class ChatService {
         return toolNotifier.drain();
     }
 
+    // ═══ Autonomous mode ═══
+    @Value("${app.autonomous.enabled:false}")
+    private boolean autonomousEnabled;
+    @Value("${app.autonomous.idle-timeout-seconds:60}")
+    private int autonomousIdleTimeoutSeconds;
+    @Value("${app.autonomous.pause-between-steps-ms:30000}")
+    private int autonomousPauseBetweenStepsMs;
+
+    private volatile long lastActivityTime = System.currentTimeMillis();
+    private volatile boolean autonomousRunning = false;
+    private volatile java.awt.Point lastCheckedMousePos = null;
+
     // Audio transcription properties (still uses raw HTTP)
     @Value("${app.openai.api-key:}")
     private String openAiApiKey;
@@ -168,6 +262,7 @@ public class ChatService {
             message = "";
         }
         String trimmed = message.trim();
+        lastActivityTime = System.currentTimeMillis();
         toolNotifier.clear();
         transcriptService.save("USER", trimmed);
 
@@ -184,7 +279,7 @@ public class ChatService {
                 String reply = chatClient.prompt()
                         .system(systemCtx.buildSystemMessage())
                         .user(trimmed)
-                        .tools(systemTools, browserTools, fileTools, fileSystemTools, taskStatusTool, chatHistoryTool, clipboardTools, memoryTools, directivesTools)
+                        .tools(systemTools, browserTools, fileTools, fileSystemTools, taskStatusTool, chatHistoryTool, clipboardTools, memoryTools, imageTools, huggingFaceImageTool, directivesTools, directiveDataTools, webScraperTools, playwrightTools, weatherTools, notificationTools, calculatorTools, qrTools, downloadTools, hashTools, unitConversionTools, timerTools, ttsTools, pdfTools, emailTools, scheduledTaskTools, summarizationTools, modelSwitchTools, exportTools, globalHotkeyService, pluginLoaderService, systemTrayService, localModelTools)
                         .call()
                         .content();
 
@@ -313,6 +408,186 @@ public class ChatService {
             }
         }
         throw last == null ? new IOException("Request failed after retries.") : last;
+    }
+
+    // ═══ Autonomous directive worker ═══
+
+    /** Returns true if the system-wide mouse cursor has NOT moved since the last check. */
+    private boolean isMouseStill() {
+        try {
+            java.awt.Point current = java.awt.MouseInfo.getPointerInfo().getLocation();
+            if (lastCheckedMousePos != null && !current.equals(lastCheckedMousePos)) {
+                lastCheckedMousePos = current;
+                return false; // mouse moved
+            }
+            lastCheckedMousePos = current;
+            return true;
+        } catch (Exception e) {
+            return true; // can't check (headless?), assume still
+        }
+    }
+
+    /** Returns true if the user appears fully idle (no chat AND no mouse movement). */
+    private boolean isUserIdle() {
+        if (!isMouseStill()) return false;
+        long chatIdleMs = System.currentTimeMillis() - lastActivityTime;
+        return chatIdleMs >= autonomousIdleTimeoutSeconds * 1000L;
+    }
+
+    @Scheduled(fixedDelayString = "${app.autonomous.check-interval-ms:15000}")
+    public void checkAutonomousWork() {
+        if (!autonomousEnabled || chatClient == null || autonomousRunning) return;
+
+        String directives = DirectivesTools.loadDirectivesForPrompt();
+        if (directives == null || directives.isBlank()) return;
+
+        if (!isUserIdle()) return;
+
+        autonomousRunning = true;
+        int step = 0;
+        try {
+            log.info("[Autonomous] User idle — starting continuous directive work.");
+
+            while (step < 100) {
+                step++;
+
+                String prompt = buildAutonomousPrompt(directives, step);
+
+                Consumer<String> asyncCallback = result -> {
+                    transcriptService.save("BOT(autonomous-agent)", result);
+                    asyncResults.add(result);
+                };
+                fileTools.setAsyncCallback(asyncCallback);
+
+                String reply = chatClient.prompt()
+                        .system(systemCtx.buildSystemMessage())
+                        .user(prompt)
+                        .tools(systemTools, browserTools, fileTools, fileSystemTools,
+                               taskStatusTool, chatHistoryTool, clipboardTools,
+                               imageTools, directivesTools, directiveDataTools,
+                               webScraperTools, playwrightTools, emailTools,
+                               scheduledTaskTools, summarizationTools, exportTools,
+                               localModelTools)
+                        .call()
+                        .content();
+
+                if (reply != null && !reply.isBlank()) {
+                    // Check for "done" signal from the AI
+                    if (reply.toLowerCase().contains("all directives addressed")) {
+                        transcriptService.save("BOT(autonomous)", reply);
+                        asyncResults.add(reply);
+                        log.info("[Autonomous] AI signaled completion at step {}.", step);
+                        break;
+                    }
+                    transcriptService.save("BOT(autonomous)", reply);
+                    asyncResults.add(reply);
+                    log.info("[Autonomous] Step {} done: {}", step,
+                            reply.length() > 100 ? reply.substring(0, 100) + "..." : reply);
+                }
+
+                // Pause between steps, then check if user is still away
+                Thread.sleep(autonomousPauseBetweenStepsMs);
+
+                if (!isMouseStill()) {
+                    log.info("[Autonomous] Mouse movement detected — stopping after {} steps.", step);
+                    break;
+                }
+                long chatIdleMs = System.currentTimeMillis() - lastActivityTime;
+                if (chatIdleMs < autonomousIdleTimeoutSeconds * 1000L) {
+                    log.info("[Autonomous] User sent a message — stopping after {} steps.", step);
+                    break;
+                }
+            }
+
+            log.info("[Autonomous] Session ended after {} steps.", step);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.info("[Autonomous] Interrupted after {} steps.", step);
+        } catch (Exception e) {
+            log.error("[Autonomous] Error at step {}: {}", step, e.getMessage(), e);
+        } finally {
+            autonomousRunning = false;
+            lastActivityTime = System.currentTimeMillis(); // prevent immediate restart
+        }
+    }
+
+    private String buildAutonomousPrompt(String directives, int step) {
+        if (step == 1) {
+            return """
+                    You are now in AUTONOMOUS MODE. The user is away from the computer.
+                    Review the primary directives below and plan how to accomplish them.
+                    Think step by step: what information do you need? What research should you do?
+
+                    For each actionable directive, gather relevant information using the tools available.
+
+                    WEB RESEARCH — you have TWO levels of headless browsing (no visible window):
+
+                    LEVEL 1 — Playwright (real browser, renders JavaScript, preferred for dynamic sites):
+                    - browsePage(url) — navigate with a real Chromium browser and get rendered text.
+                    - browseAndGetImages(url) — extract all image URLs after JS renders.
+                    - browseAndGetLinks(url) — extract all links after JS renders.
+                    - browseSearchAndDownloadImages(query, directiveName, maxImages) — search Google/Bing \
+                    Images with a real browser, find full-size image URLs, download them to the directive folder.
+                    - screenshotPage(url, directiveName) — take a full-page screenshot and save it.
+                    - browseAndClick(url, selector) — click an element on a page.
+                    - browseAndFill(url, selector, value, submit) — fill a form and optionally submit.
+
+                    LEVEL 2 — HTTP fetch (lighter, faster, for simple/static pages):
+                    - fetchPageText(url) — simple HTTP fetch and strip HTML.
+                    - extractImageUrls(url), extractLinks(url) — regex-based extraction.
+                    - searchAndDownloadImages(query, directiveName, maxImages) — HTTP-based image search.
+                    - downloadFile(url, filename, directiveName) — download any file from a URL.
+                    - fetchPageWithImages(url) — get both text and image URLs.
+
+                    PREFER Playwright tools (browseSearchAndDownloadImages, browsePage) for image search \
+                    and JS-heavy sites. Use HTTP fetch tools as a faster fallback for simple pages.
+                    Do NOT open the system browser. These tools work silently in the background.
+
+                    SAVING DATA:
+                    - Do NOT write to primary_directives.dat. That file is ONLY for directive definitions.
+                    - Use saveDirectiveFinding(directiveName, content) to save text findings into a \
+                    per-directive folder: ~/botsfer_data/directive_{name}/
+                    - Use saveDirectiveScreenshot(directiveName) to capture the current screen as an image.
+                    - Use searchAndDownloadImages or downloadFile to save images from the web.
+                    - Use a short, descriptive directiveName derived from the directive \
+                    (e.g. "search-condo-new-york", "make-money-online").
+                    - Use listDirectiveData(directiveName) to see what you've gathered so far.
+                    - Each directive gets its own folder. All gathered data (text, images) goes there.
+
+                    Report what you did and what you plan to do next. Be concise.
+                    If all directives are personality/tone settings with nothing actionable, return an empty response.
+
+                    DIRECTIVES:
+                    """ + directives;
+        }
+        return """
+                [Autonomous step %d] You are still in AUTONOMOUS MODE. The user is still away.
+
+                Continue working on the primary directives. Use listDirectiveData to review \
+                what you've already gathered, then decide what the NEXT concrete step is.
+
+                Keep researching, gathering information, and downloading files. \
+                Ask yourself: "Based on what I know about this user, what is the best way to accomplish these directives?" \
+                Then act on it.
+
+                REMINDER — web research tools (headless, no visible browser):
+                Playwright (preferred): browsePage, browseAndGetImages, browseAndGetLinks, \
+                browseSearchAndDownloadImages, screenshotPage, browseAndClick, browseAndFill.
+                HTTP fetch (lighter): fetchPageText, extractImageUrls, extractLinks, fetchPageWithImages.
+                Downloads: browseSearchAndDownloadImages, searchAndDownloadImages, downloadFile.
+
+                SAVING DATA:
+                - Text: saveDirectiveFinding(directiveName, content)
+                - Images: searchAndDownloadImages or downloadFile with directiveName
+                - Screenshots: saveDirectiveScreenshot(directiveName)
+                - Do NOT write to primary_directives.dat — that file is only for directive definitions.
+
+                Report briefly what you did this step. Be concise.
+                If you've completed all actionable directives or there's nothing more to do, \
+                say "All directives addressed" so the system knows to stop.
+
+                DIRECTIVES:
+                """.formatted(step) + directives;
     }
 
 }
