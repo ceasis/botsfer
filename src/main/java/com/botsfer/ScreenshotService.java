@@ -11,11 +11,11 @@ import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -31,6 +31,9 @@ public class ScreenshotService {
 
     @Value("${app.screenshot.enabled:true}")
     private boolean enabled;
+
+    @Value("${app.screenshot.max-age-days:3}")
+    private int maxAgeDays;
 
     private Path screenshotDir;
     private ScheduledExecutorService scheduler;
@@ -59,14 +62,37 @@ public class ScreenshotService {
             t.setDaemon(true);
             return t;
         });
+        cleanupOldScreenshots();
         scheduler.scheduleAtFixedRate(this::capture, intervalSeconds, intervalSeconds, TimeUnit.SECONDS);
-        log.info("Screenshot capture started (every {}s)", intervalSeconds);
+        // Run cleanup once a day
+        scheduler.scheduleAtFixedRate(this::cleanupOldScreenshots, 1L, 1L, TimeUnit.DAYS);
+        log.info("Screenshot capture started (every {}s, cleanup after {}d)", intervalSeconds, maxAgeDays);
     }
 
     @PreDestroy
     public void shutdown() {
         if (scheduler != null) {
             scheduler.shutdownNow();
+        }
+    }
+
+    private void cleanupOldScreenshots() {
+        try {
+            Instant cutoff = Instant.now().minus(maxAgeDays, ChronoUnit.DAYS);
+            int deleted = 0;
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(screenshotDir, "*.png")) {
+                for (Path file : stream) {
+                    if (Files.getLastModifiedTime(file).toInstant().isBefore(cutoff)) {
+                        Files.deleteIfExists(file);
+                        deleted++;
+                    }
+                }
+            }
+            if (deleted > 0) {
+                log.info("Cleaned up {} old screenshots (older than {}d)", deleted, maxAgeDays);
+            }
+        } catch (Exception e) {
+            log.error("Screenshot cleanup failed", e);
         }
     }
 

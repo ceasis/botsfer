@@ -44,76 +44,9 @@ public class PcAgentService {
     }
 
     /**
-     * Execute a structured action (from IntentService classification).
-     * Returns the immediate reply, or null if the action is unknown.
-     */
-    public String executeAction(String action, Map<String, String> params,
-                                Consumer<String> asyncResultCallback) {
-        if (action == null || action.isBlank()) return null;
-
-        return switch (action) {
-            case "collect_files" -> {
-                String category = params.getOrDefault("category", "photos");
-                String taskId = "collect-" + category;
-                runningTasks.put(taskId, "running");
-                executor.submit(() -> {
-                    try {
-                        String result = fileCollector.collectByCategory(category);
-                        runningTasks.put(taskId, "done");
-                        if (asyncResultCallback != null) asyncResultCallback.accept(result);
-                    } catch (Exception e) {
-                        runningTasks.put(taskId, "error");
-                        if (asyncResultCallback != null) asyncResultCallback.accept("Error: " + e.getMessage());
-                    }
-                });
-                yield "On it! Scanning your PC for " + category + " files. I'll report back when done.";
-            }
-            case "list_collected" -> listCollected();
-            case "open_collected" -> openFileOrFolder(
-                    Paths.get(System.getProperty("user.home"), "botsfer_data", "collected").toString());
-            case "search_files" -> {
-                String pattern = params.getOrDefault("pattern", "*");
-                if (!pattern.contains("*") && !pattern.contains("?")) {
-                    pattern = "*" + pattern + "*";
-                }
-                String pat = pattern;
-                executor.submit(() -> {
-                    try {
-                        String result = fileCollector.searchFiles(pat, 50);
-                        if (asyncResultCallback != null) asyncResultCallback.accept(result);
-                    } catch (Exception e) {
-                        if (asyncResultCallback != null) asyncResultCallback.accept("Search error: " + e.getMessage());
-                    }
-                });
-                yield "Searching for \"" + pat + "\" across your PC...";
-            }
-            case "close_all_windows" -> systemControl.closeAllWindows();
-            case "close_browsers" -> browserControl.closeAllBrowsers();
-            case "close_app" -> systemControl.closeApp(params.getOrDefault("app_name", ""));
-            case "open_app" -> systemControl.openApp(params.getOrDefault("app_name", ""));
-            case "minimize_all" -> systemControl.minimizeAll();
-            case "lock_screen" -> systemControl.lockScreen();
-            case "take_screenshot" -> systemControl.takeScreenshot();
-            case "list_running_apps" -> systemControl.listRunningApps();
-            case "task_status" -> getTaskStatus();
-            case "youtube_search" -> browserControl.searchYouTube(params.getOrDefault("query", ""));
-            case "google_search" -> browserControl.searchGoogle(params.getOrDefault("query", ""));
-            case "open_url" -> browserControl.openInBrowser("default", params.getOrDefault("url", ""));
-            case "list_browser_tabs" -> browserControl.listBrowserTabs();
-            case "open_path" -> openFileOrFolder(params.getOrDefault("path", ""));
-            case "copy_file" -> copyFile(
-                    params.getOrDefault("source", ""),
-                    params.getOrDefault("destination", ""));
-            case "delete_file" -> deleteFile(params.getOrDefault("path", ""));
-            case "run_powershell" -> systemControl.runPowerShell(params.getOrDefault("command", ""));
-            default -> null;
-        };
-    }
-
-    /**
      * Attempts to interpret a message as a PC command using regex matching.
      * Returns null if not recognized (falls through to normal chat).
-     * This is the fallback when IntentService (OpenAI) is not available.
+     * This is the offline fallback when Spring AI ChatClient is not available.
      */
     public String tryExecute(String message, Consumer<String> asyncResultCallback) {
         if (message == null || message.isBlank()) return null;
@@ -269,6 +202,12 @@ public class PcAgentService {
         String psCmd = matchPowerShell(lower, original);
         if (psCmd != null) {
             return systemControl.runPowerShell(psCmd);
+        }
+
+        // ── Run CMD ──
+        String cmdCmd = matchCmd(lower, original);
+        if (cmdCmd != null) {
+            return systemControl.runCmd(cmdCmd);
         }
 
         // Not a command
@@ -473,6 +412,19 @@ public class PcAgentService {
 
     private String matchPowerShell(String lower, String original) {
         Matcher m = PS_PATTERN.matcher(original);
+        if (m.find()) {
+            return m.group(1).trim();
+        }
+        return null;
+    }
+
+    private static final Pattern CMD_PATTERN = Pattern.compile(
+            "(?:run|execute)\\s+(?:cmd|command|terminal)\\s*:?\\s*(.+)",
+            Pattern.CASE_INSENSITIVE
+    );
+
+    private String matchCmd(String lower, String original) {
+        Matcher m = CMD_PATTERN.matcher(original);
         if (m.find()) {
             return m.group(1).trim();
         }

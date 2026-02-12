@@ -20,6 +20,8 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.Environment;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -102,6 +104,20 @@ public class FloatingAppLauncher extends Application {
                     // Force the WebView's internal page background to transparent
                     engine.executeScript("document.documentElement.style.background='transparent';"
                             + "document.body.style.background='transparent';");
+
+                    // Make WebView's internal Chromium surface truly transparent
+                    // (removes the white rectangle behind the HTML content)
+                    try {
+                        Field pageField = engine.getClass().getDeclaredField("page");
+                        pageField.setAccessible(true);
+                        Object page = pageField.get(engine);
+                        Method setBackgroundColor = page.getClass()
+                                .getMethod("setBackgroundColor", int.class);
+                        setBackgroundColor.invoke(page, 0); // 0 = fully transparent ARGB
+                    } catch (Exception bgEx) {
+                        System.err.println("[Botsfer] Could not set transparent WebView background: "
+                                + bgEx.getMessage());
+                    }
                 } catch (Exception e) {
                     // Bridge may fail in some environments
                 }

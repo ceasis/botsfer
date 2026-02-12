@@ -181,9 +181,10 @@ public class SystemControlService {
         launchCommands.put("paint", new String[]{"mspaint.exe"});
         launchCommands.put("explorer", new String[]{"explorer.exe"});
         launchCommands.put("file explorer", new String[]{"explorer.exe"});
-        launchCommands.put("terminal", new String[]{"wt.exe"});
-        launchCommands.put("cmd", new String[]{"cmd.exe"});
-        launchCommands.put("powershell", new String[]{"powershell.exe"});
+        launchCommands.put("terminal", new String[]{"cmd", "/c", "start", "", "wt.exe"});
+        launchCommands.put("command prompt", new String[]{"cmd", "/c", "start", "", "cmd.exe"});
+        launchCommands.put("cmd", new String[]{"cmd", "/c", "start", "", "cmd.exe"});
+        launchCommands.put("powershell", new String[]{"cmd", "/c", "start", "", "powershell.exe"});
         launchCommands.put("task manager", new String[]{"taskmgr.exe"});
         launchCommands.put("settings", new String[]{"cmd", "/c", "start", "ms-settings:"});
         launchCommands.put("control panel", new String[]{"control.exe"});
@@ -318,6 +319,28 @@ public class SystemControlService {
             return output.isBlank() ? "Command completed (no output)." : output;
         } catch (Exception e) {
             return "PowerShell error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Run an arbitrary CMD command and return output.
+     */
+    public String runCmd(String command) {
+        try {
+            Process p = new ProcessBuilder("cmd", "/c", command)
+                    .redirectErrorStream(true).start();
+            String output;
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                output = reader.lines().collect(Collectors.joining("\n"));
+            }
+            p.waitFor();
+            if (output.length() > 2000) {
+                output = output.substring(0, 2000) + "\n... (truncated)";
+            }
+            return output.isBlank() ? "Command completed (no output)." : output;
+        } catch (Exception e) {
+            return "CMD error: " + e.getMessage();
         }
     }
 

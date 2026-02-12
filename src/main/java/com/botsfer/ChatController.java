@@ -3,6 +3,7 @@ package com.botsfer;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -30,5 +31,12 @@ public class ChatController {
             return Map.of("hasResult", true, "reply", result);
         }
         return Map.of("hasResult", false);
+    }
+
+    /** Poll for tool execution status updates while a request is in-flight. */
+    @GetMapping(value = "/chat/status", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> pollToolStatus() {
+        List<String> messages = chatService.drainToolStatus();
+        return Map.of("messages", messages);
     }
 }
