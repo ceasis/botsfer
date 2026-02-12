@@ -2,6 +2,7 @@ package com.botsfer;
 
 import com.botsfer.agent.PcAgentService;
 import com.botsfer.agent.SystemContextProvider;
+import com.botsfer.agent.WorkingSoundService;
 import com.botsfer.agent.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -77,6 +78,7 @@ public class ChatService {
     private final SystemTrayService systemTrayService;
     private final LocalModelTools localModelTools;
     private final ToolExecutionNotifier toolNotifier;
+    private final WorkingSoundService workingSound;
 
     /** Spring AI ChatClient — null when no API key is configured. Swappable at runtime. */
     @Autowired(required = false)
@@ -134,7 +136,8 @@ public class ChatService {
                        PluginLoaderService pluginLoaderService,
                        SystemTrayService systemTrayService,
                        LocalModelTools localModelTools,
-                       ToolExecutionNotifier toolNotifier) {
+                       ToolExecutionNotifier toolNotifier,
+                       WorkingSoundService workingSound) {
         this.transcriptService = transcriptService;
         this.pcAgent = pcAgent;
         this.systemCtx = systemCtx;
@@ -172,6 +175,7 @@ public class ChatService {
         this.systemTrayService = systemTrayService;
         this.localModelTools = localModelTools;
         this.toolNotifier = toolNotifier;
+        this.workingSound = workingSound;
     }
 
     @PostConstruct
@@ -275,19 +279,25 @@ public class ChatService {
         if (chatClient != null) {
             try {
                 fileTools.setAsyncCallback(asyncCallback);
+                workingSound.start();
 
                 String reply = chatClient.prompt()
                         .system(systemCtx.buildSystemMessage())
                         .user(trimmed)
-                        .tools(systemTools, browserTools, fileTools, fileSystemTools, taskStatusTool, chatHistoryTool, clipboardTools, memoryTools, imageTools, huggingFaceImageTool, directivesTools, directiveDataTools, webScraperTools, playwrightTools, weatherTools, notificationTools, calculatorTools, qrTools, downloadTools, hashTools, unitConversionTools, timerTools, ttsTools, pdfTools, emailTools, scheduledTaskTools, summarizationTools, modelSwitchTools, exportTools, globalHotkeyService, pluginLoaderService, systemTrayService, localModelTools)
+                        // OpenAI allows max 128 tools per request; we have 140+ so exclude optional/niche ones to stay under limit
+// Excluded: modelSwitchTools, globalHotkeyService, pluginLoaderService, systemTrayService, exportTools
+.tools(systemTools, browserTools, fileTools, fileSystemTools, taskStatusTool, chatHistoryTool, clipboardTools, memoryTools, imageTools, huggingFaceImageTool, directivesTools, directiveDataTools, webScraperTools, playwrightTools, weatherTools, notificationTools, calculatorTools, qrTools, downloadTools, hashTools, unitConversionTools, timerTools, ttsTools, pdfTools, emailTools, scheduledTaskTools, summarizationTools, localModelTools)
                         .call()
                         .content();
+
+                workingSound.stop();
 
                 if (reply != null && !reply.isBlank()) {
                     transcriptService.save("BOT", reply);
                     return reply;
                 }
             } catch (Exception e) {
+                workingSound.stop();
                 log.error("[ChatService] Spring AI error: {}", e.getMessage(), e);
                 // Tell the user what went wrong instead of silently falling back
                 String errorReply = "AI error: " + e.getMessage();
@@ -458,6 +468,7 @@ public class ChatService {
                     asyncResults.add(result);
                 };
                 fileTools.setAsyncCallback(asyncCallback);
+                workingSound.start();
 
                 String reply = chatClient.prompt()
                         .system(systemCtx.buildSystemMessage())
@@ -470,6 +481,8 @@ public class ChatService {
                                localModelTools)
                         .call()
                         .content();
+
+                workingSound.stop();
 
                 if (reply != null && !reply.isBlank()) {
                     // Check for "done" signal from the AI
@@ -506,6 +519,7 @@ public class ChatService {
         } catch (Exception e) {
             log.error("[Autonomous] Error at step {}: {}", step, e.getMessage(), e);
         } finally {
+            workingSound.stop();
             autonomousRunning = false;
             lastActivityTime = System.currentTimeMillis(); // prevent immediate restart
         }
@@ -536,7 +550,7 @@ public class ChatService {
                     - fetchPageText(url) — simple HTTP fetch and strip HTML.
                     - extractImageUrls(url), extractLinks(url) — regex-based extraction.
                     - searchAndDownloadImages(query, directiveName, maxImages) — HTTP-based image search.
-                    - downloadFile(url, filename, directiveName) — download any file from a URL.
+                    - downloadFileToFolder(url, filename, directiveName) — download any file from a URL.
                     - fetchPageWithImages(url) — get both text and image URLs.
 
                     PREFER Playwright tools (browseSearchAndDownloadImages, browsePage) for image search \
@@ -548,7 +562,7 @@ public class ChatService {
                     - Use saveDirectiveFinding(directiveName, content) to save text findings into a \
                     per-directive folder: ~/botsfer_data/directive_{name}/
                     - Use saveDirectiveScreenshot(directiveName) to capture the current screen as an image.
-                    - Use searchAndDownloadImages or downloadFile to save images from the web.
+                    - Use searchAndDownloadImages, downloadFile (to path), or downloadFileToFolder (to directive folder) to save images from the web.
                     - Use a short, descriptive directiveName derived from the directive \
                     (e.g. "search-condo-new-york", "make-money-online").
                     - Use listDirectiveData(directiveName) to see what you've gathered so far.
@@ -574,11 +588,11 @@ public class ChatService {
                 Playwright (preferred): browsePage, browseAndGetImages, browseAndGetLinks, \
                 browseSearchAndDownloadImages, screenshotPage, browseAndClick, browseAndFill.
                 HTTP fetch (lighter): fetchPageText, extractImageUrls, extractLinks, fetchPageWithImages.
-                Downloads: browseSearchAndDownloadImages, searchAndDownloadImages, downloadFile.
+                Downloads: browseSearchAndDownloadImages, searchAndDownloadImages, downloadFile, downloadFileToFolder.
 
                 SAVING DATA:
                 - Text: saveDirectiveFinding(directiveName, content)
-                - Images: searchAndDownloadImages or downloadFile with directiveName
+                - Images: searchAndDownloadImages or downloadFileToFolder with directiveName
                 - Screenshots: saveDirectiveScreenshot(directiveName)
                 - Do NOT write to primary_directives.dat — that file is only for directive definitions.
 

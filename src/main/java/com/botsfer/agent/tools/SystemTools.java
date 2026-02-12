@@ -326,6 +326,41 @@ public class SystemTools {
         return systemControl.runPowerShell(ps);
     }
 
+    @Tool(description = "Change the desktop wallpaper to an image file. Supports JPG, PNG, and BMP. "
+            + "Provide the full path to an image file on this PC.")
+    public String setWallpaper(
+            @ToolParam(description = "Full path to the image file, e.g. C:\\Users\\me\\Pictures\\wall.jpg") String imagePath) {
+        notifier.notify("Changing wallpaper...");
+        Path p = Paths.get(imagePath).toAbsolutePath();
+        if (!Files.exists(p)) return "Image not found: " + p;
+        if (Files.isDirectory(p)) return "Path is a directory, not an image: " + p;
+
+        String absPath = p.toString().replace("'", "''");
+        // Use SystemParametersInfo via Add-Type to set wallpaper natively
+        String ps = """
+                Add-Type -TypeDefinition @"
+                using System;
+                using System.Runtime.InteropServices;
+                public class Wallpaper {
+                    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+                    public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+                    public const int SPI_SETDESKWALLPAPER = 0x0014;
+                    public const int SPIF_UPDATEINIFILE = 0x01;
+                    public const int SPIF_SENDWININICHANGE = 0x02;
+                    public static void Set(string path) {
+                        SystemParametersInfo(SPI_SETDESKWALLPAPER, 0, path, SPIF_UPDATEINIFILE | SPIF_SENDWININICHANGE);
+                    }
+                }
+                "@
+                [Wallpaper]::Set('%s')
+                """.formatted(absPath);
+        String result = systemControl.runPowerShell(ps);
+        if (result != null && result.toLowerCase().contains("error")) {
+            return "Failed to set wallpaper: " + result;
+        }
+        return "Wallpaper changed to: " + p;
+    }
+
     private static String fmt(long bytes) {
         if (bytes < 1024) return bytes + " B";
         double kb = bytes / 1024.0;

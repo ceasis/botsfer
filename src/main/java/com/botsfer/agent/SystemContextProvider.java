@@ -3,7 +3,11 @@ package com.botsfer.agent;
 import com.botsfer.agent.tools.DirectivesTools;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.net.InetAddress;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -47,6 +51,14 @@ public class SystemContextProvider {
                 Be concise and helpful. Use the available tools to fulfill user requests.
                 """.formatted(username, computerName, osName, osVersion, osArch, userHome, now, userHome));
 
+        // Load HIERARCHY.md for tool execution prioritization
+        String hierarchy = loadHierarchy();
+        if (hierarchy != null) {
+            sb.append("\nDEVELOPMENT HIERARCHY (refer to this when evaluating tool execution and task priorities):\n");
+            sb.append(hierarchy);
+            sb.append("\n");
+        }
+
         String directives = DirectivesTools.loadDirectivesForPrompt();
         if (directives != null) {
             sb.append("\nUSER DIRECTIVES (follow these at all times):\n");
@@ -77,5 +89,19 @@ public class SystemContextProvider {
         }
 
         return sb.toString();
+    }
+
+    /**
+     * Load HIERARCHY.md from the project root for tool execution prioritization.
+     */
+    private String loadHierarchy() {
+        try {
+            Path path = Paths.get(System.getProperty("user.dir"), "HIERARCHY.md");
+            if (Files.exists(path)) {
+                return Files.readString(path);
+            }
+        } catch (IOException ignored) {
+        }
+        return null;
     }
 }

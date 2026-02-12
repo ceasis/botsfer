@@ -340,7 +340,8 @@ public class FileSystemTools {
 
     // ─── Search ──────────────────────────────────────────────────────────────
 
-    @Tool(description = "Search for files or directories by name pattern within a starting directory. Supports wildcards * and ?.")
+    @Tool(description = "Search for files or directories by name pattern within a starting directory. Supports wildcards * and ?. "
+            + "Returns the total count of ALL matches and lists the first 100 with details.")
     public String searchInDirectory(
             @ToolParam(description = "Directory to search in") String directory,
             @ToolParam(description = "Name pattern, e.g. '*.txt', 'report*', '*.log'") String pattern) {
@@ -350,23 +351,28 @@ public class FileSystemTools {
             if (!Files.exists(dir) || !Files.isDirectory(dir)) return "Directory not found: " + dir;
             PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
             StringBuilder sb = new StringBuilder();
-            int[] count = {0};
+            int[] listed = {0};
+            AtomicLong totalCount = new AtomicLong(0);
             Files.walkFileTree(dir, new SimpleFileVisitor<>() {
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    if (count[0] >= 100) return FileVisitResult.TERMINATE;
                     if (matcher.matches(file.getFileName())) {
-                        sb.append(file).append(" (").append(formatSize(attrs.size())).append(")\n");
-                        count[0]++;
+                        totalCount.incrementAndGet();
+                        if (listed[0] < 100) {
+                            sb.append(file).append(" (").append(formatSize(attrs.size())).append(")\n");
+                            listed[0]++;
+                        }
                     }
                     return FileVisitResult.CONTINUE;
                 }
                 @Override
                 public FileVisitResult preVisitDirectory(Path d, BasicFileAttributes attrs) {
-                    if (count[0] >= 100) return FileVisitResult.TERMINATE;
                     if (!d.equals(dir) && matcher.matches(d.getFileName())) {
-                        sb.append(d).append(" (DIR)\n");
-                        count[0]++;
+                        totalCount.incrementAndGet();
+                        if (listed[0] < 100) {
+                            sb.append(d).append(" (DIR)\n");
+                            listed[0]++;
+                        }
                     }
                     return FileVisitResult.CONTINUE;
                 }
@@ -375,9 +381,13 @@ public class FileSystemTools {
                     return FileVisitResult.CONTINUE;
                 }
             });
-            if (count[0] == 0) return "No matches found for '" + pattern + "' in " + dir;
-            return "Found " + count[0] + " match(es):\n" + sb
-                    + (count[0] >= 100 ? "(results capped at 100)" : "");
+            long total = totalCount.get();
+            if (total == 0) return "No matches found for '" + pattern + "' in " + dir;
+            String header = "Found " + total + " match(es)";
+            if (total > 100) {
+                header += " (showing first 100)";
+            }
+            return header + ":\n" + sb;
         } catch (IOException e) {
             return "Search failed: " + e.getMessage();
         }

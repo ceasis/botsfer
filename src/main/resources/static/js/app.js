@@ -533,6 +533,85 @@
     } catch (e) { /* ignore */ }
   }, 2000);
 
+  // ═══ Browser tab ═══
+
+  const tabs = document.querySelectorAll('.tab');
+  const tabContents = document.querySelectorAll('.tab-content');
+  const browserFrame = document.getElementById('browser-frame');
+  const browserEmpty = document.getElementById('browser-empty');
+  const browserUrl = document.getElementById('browser-url');
+  const browserGo = document.getElementById('browser-go');
+  const browserBack = document.getElementById('browser-back');
+  const browserForward = document.getElementById('browser-forward');
+  const browserRefresh = document.getElementById('browser-refresh');
+
+  let browserPollTimer = null;
+  let lastBlobUrl = null;
+
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      tabs.forEach(function (t) { t.classList.remove('active'); });
+      tabContents.forEach(function (c) { c.classList.remove('active'); });
+      tab.classList.add('active');
+      document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      if (tab.dataset.tab === 'browser') startBrowserPolling();
+      else stopBrowserPolling();
+    });
+  });
+
+  function startBrowserPolling() {
+    if (browserPollTimer) return;
+    refreshBrowserView();
+    browserPollTimer = setInterval(refreshBrowserView, 1000);
+  }
+
+  function stopBrowserPolling() {
+    if (browserPollTimer) { clearInterval(browserPollTimer); browserPollTimer = null; }
+  }
+
+  async function refreshBrowserView() {
+    try {
+      var res = await fetch('/api/browser/screenshot');
+      if (res.ok && res.status !== 204) {
+        var blob = await res.blob();
+        if (lastBlobUrl) URL.revokeObjectURL(lastBlobUrl);
+        lastBlobUrl = URL.createObjectURL(blob);
+        browserFrame.src = lastBlobUrl;
+        browserFrame.style.display = 'block';
+        browserEmpty.style.display = 'none';
+      }
+      var info = await fetch('/api/browser/info');
+      if (info.ok) {
+        var data = await info.json();
+        browserUrl.value = data.url || '';
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  function browserNavigate(url) {
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    fetch('/api/browser/navigate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url })
+    }).then(function () { setTimeout(refreshBrowserView, 500); });
+  }
+
+  if (browserGo) browserGo.addEventListener('click', function () { browserNavigate(browserUrl.value); });
+  if (browserUrl) browserUrl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); browserNavigate(browserUrl.value); }
+  });
+  if (browserBack) browserBack.addEventListener('click', function () {
+    fetch('/api/browser/back', { method: 'POST' }).then(function () { setTimeout(refreshBrowserView, 500); });
+  });
+  if (browserForward) browserForward.addEventListener('click', function () {
+    fetch('/api/browser/forward', { method: 'POST' }).then(function () { setTimeout(refreshBrowserView, 500); });
+  });
+  if (browserRefresh) browserRefresh.addEventListener('click', function () {
+    fetch('/api/browser/refresh', { method: 'POST' }).then(function () { setTimeout(refreshBrowserView, 500); });
+  });
+
   // ═══ Load chat history or show greeting ═══
 
   function appendHistoryMessage(text, isUser, time) {

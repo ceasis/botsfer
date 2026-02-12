@@ -70,7 +70,7 @@ public class BrowserTools {
     @Tool(description = "Download a file from a URL and save it to ~/botsfer_data/downloads/ " +
             "(or to a specific directive folder if directiveName is provided). " +
             "Supports any file type: images, PDFs, documents, etc.")
-    public String downloadFile(
+    public String downloadFileToFolder(
             @ToolParam(description = "The full URL of the file to download") String url,
             @ToolParam(description = "Optional filename to save as. If empty, derived from URL.") String filename,
             @ToolParam(description = "Optional directive name to save into its folder (e.g. 'search-condo'). " +

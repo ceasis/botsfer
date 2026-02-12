@@ -7,6 +7,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import com.microsoft.playwright.options.ScreenshotType;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -30,6 +32,12 @@ public class PlaywrightService {
     private Browser browser;
     private final Object lock = new Object();
     private volatile boolean installAttempted = false;
+
+    // ─── Persistent viewer page (for browser tab) ──────────────────────────
+    private BrowserContext viewerContext;
+    private Page viewerPage;
+    private volatile String lastUrl = "";
+    private volatile String lastTitle = "";
 
     /** Get (or lazily create) the shared browser. Auto-installs Chromium on first use. */
     private Browser getBrowser() {
@@ -106,6 +114,7 @@ public class PlaywrightService {
             page.waitForLoadState(LoadState.NETWORKIDLE);
             String text = page.innerText("body");
             page.context().close();
+            mirrorToViewer(url);
             if (text.length() > 10000) {
                 text = text.substring(0, 10000) + "\n... (truncated)";
             }
@@ -120,6 +129,7 @@ public class PlaywrightService {
             page.waitForLoadState(LoadState.NETWORKIDLE);
             String html = page.content();
             page.context().close();
+            mirrorToViewer(url);
             if (html.length() > 500000) {
                 html = html.substring(0, 500000);
             }
@@ -200,6 +210,7 @@ public class PlaywrightService {
                     .setFullPage(true)
                     .setPath(target));
             page.context().close();
+            mirrorToViewer(url);
             return target;
         }
     }
@@ -329,6 +340,109 @@ public class PlaywrightService {
         }
     }
 
+    // ─── Viewer API (for browser tab) ─────────────────────────────────────
+
+    /** Get or create the persistent viewer page. */
+    public synchronized Page getViewerPage() {
+        if (viewerPage == null || viewerPage.isClosed()) {
+            viewerContext = getBrowser().newContext(
+                    new Browser.NewContextOptions()
+                            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                            .setViewportSize(1280, 720)
+                            .setLocale("en-US")
+            );
+            viewerContext.setDefaultTimeout(30000);
+            viewerPage = viewerContext.newPage();
+        }
+        return viewerPage;
+    }
+
+    /** Navigate the viewer page to a URL. */
+    public synchronized String viewerNavigate(String url) {
+        try {
+            Page page = getViewerPage();
+            page.navigate(url);
+            page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+            lastUrl = page.url();
+            lastTitle = page.title();
+            return lastTitle;
+        } catch (Exception e) {
+            log.warn("[Playwright] Viewer navigate failed: {}", e.getMessage());
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /** Take a JPEG screenshot of the viewer page. Returns null if no page open. */
+    public synchronized byte[] viewerScreenshot() {
+        if (viewerPage == null || viewerPage.isClosed()) return null;
+        try {
+            lastUrl = viewerPage.url();
+            lastTitle = viewerPage.title();
+            return viewerPage.screenshot(new Page.ScreenshotOptions()
+                    .setFullPage(false)
+                    .setType(ScreenshotType.JPEG)
+                    .setQuality(60));
+        } catch (Exception e) {
+            log.debug("[Playwright] Viewer screenshot failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** Get current URL and title of the viewer page. */
+    public Map<String, String> viewerInfo() {
+        return Map.of(
+                "url", lastUrl,
+                "title", lastTitle,
+                "active", String.valueOf(viewerPage != null && !viewerPage.isClosed())
+        );
+    }
+
+    /** Go back in viewer history. */
+    public synchronized void viewerBack() {
+        if (viewerPage == null || viewerPage.isClosed()) return;
+        try {
+            viewerPage.goBack();
+            lastUrl = viewerPage.url();
+            lastTitle = viewerPage.title();
+        } catch (Exception ignored) {}
+    }
+
+    /** Go forward in viewer history. */
+    public synchronized void viewerForward() {
+        if (viewerPage == null || viewerPage.isClosed()) return;
+        try {
+            viewerPage.goForward();
+            lastUrl = viewerPage.url();
+            lastTitle = viewerPage.title();
+        } catch (Exception ignored) {}
+    }
+
+    /** Refresh the viewer page. */
+    public synchronized void viewerRefresh() {
+        if (viewerPage == null || viewerPage.isClosed()) return;
+        try {
+            viewerPage.reload();
+            lastUrl = viewerPage.url();
+            lastTitle = viewerPage.title();
+        } catch (Exception ignored) {}
+    }
+
+    /** Called by tool methods after navigating — mirrors URL to the viewer page. */
+    public void mirrorToViewer(String url) {
+        if (viewerPage != null && !viewerPage.isClosed()) {
+            try {
+                viewerPage.navigate(url);
+                viewerPage.waitForLoadState(LoadState.DOMCONTENTLOADED);
+                lastUrl = viewerPage.url();
+                lastTitle = viewerPage.title();
+            } catch (Exception ignored) {}
+        } else {
+            lastUrl = url;
+            lastTitle = "";
+        }
+    }
+
     private String sanitizeName(String name) {
         if (name == null || name.isBlank()) return "unnamed";
         String safe = name.trim().toLowerCase()
@@ -341,6 +455,9 @@ public class PlaywrightService {
     public void shutdown() {
         synchronized (lock) {
             log.info("[Playwright] Shutting down browser...");
+            try { if (viewerContext != null) viewerContext.close(); } catch (Exception ignored) {}
+            viewerPage = null;
+            viewerContext = null;
             try { if (browser != null) browser.close(); } catch (Exception ignored) {}
             try { if (playwright != null) playwright.close(); } catch (Exception ignored) {}
             browser = null;

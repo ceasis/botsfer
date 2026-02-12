@@ -7,7 +7,8 @@
       "Bash(mvn dependency:tree:*)",
       "Bash(Select-String \"ollama\")",
       "Bash(jar tf:*)",
-      "Bash(javap:*)"
+      "Bash(javap:*)",
+      "Bash(javac:*)"
     ]
   }
 }

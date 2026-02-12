@@ -31,9 +31,9 @@ public class ScheduledTaskTools {
         this.notifier = notifier;
     }
 
-    @Tool(description = "Set a reminder that fires after a delay. The reminder message will appear " +
-            "as a notification. Use this when the user says 'remind me in 5 minutes to...'.")
-    public String setReminder(
+    @Tool(description = "Schedule a one-shot reminder that fires after a delay (tracked by ID; use listScheduledTasks/cancelScheduledTask). " +
+            "Use when the user says 'remind me in 5 minutes to...' and you need list/cancel support.")
+    public String scheduleReminder(
             @ToolParam(description = "Reminder message, e.g. 'Take a break'") String message,
             @ToolParam(description = "Delay in minutes before the reminder fires") int delayMinutes) {
         notifier.notify("Setting reminder: " + delayMinutes + "min");

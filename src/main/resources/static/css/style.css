@@ -176,6 +176,140 @@ html, body {
   color: #fbbf24;
 }
 
+/* ─── Tab bar ─── */
+.tab-bar {
+  flex-shrink: 0;
+  display: flex;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.tab {
+  flex: 1;
+  padding: 7px 0;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: rgba(255,255,255,0.4);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tab:hover {
+  color: rgba(255,255,255,0.6);
+}
+
+.tab.active {
+  color: #e4e4e7;
+  border-bottom-color: #6366f1;
+}
+
+/* ─── Tab content ─── */
+.tab-content {
+  display: none;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.tab-content.active {
+  display: flex;
+}
+
+/* ─── Browser tab ─── */
+.browser-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  gap: 3px;
+  padding: 5px 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: rgba(0,0,0,0.1);
+  align-items: center;
+}
+
+.browser-nav-btn {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: #a1a1aa;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  line-height: 1;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.browser-nav-btn:hover {
+  background: rgba(255,255,255,0.12);
+  color: #e4e4e7;
+}
+
+.browser-go-btn {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 10px;
+  background: rgba(99,102,241,0.2);
+  border-color: rgba(99,102,241,0.3);
+  color: #a5b4fc;
+}
+
+.browser-go-btn:hover {
+  background: rgba(99,102,241,0.35);
+}
+
+.browser-url-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: #e4e4e7;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 10px;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.browser-url-input:focus {
+  border-color: rgba(99,102,241,0.4);
+}
+
+.browser-viewport {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  background: #0a0a0a;
+  min-height: 0;
+}
+
+#browser-frame {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: none;
+}
+
+.browser-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.25);
+  font-size: 11px;
+  text-align: center;
+  padding: 20px;
+}
+
 /* Messages */
 .messages {
   flex: 1;
